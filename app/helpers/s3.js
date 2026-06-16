@@ -3,8 +3,8 @@ const fs = require('fs');
 const formidable = require('formidable');
 
 // Enter copied or downloaded access ID and secret key here
-const ID = process.env.AWS_ACCESS_KEY;
-const SECRET = process.env.AWS_SECRET_KEY;
+const ID = process.env.AWS_ACCESS_KEY_ID;
+const SECRET = process.env.AWS_S3_SECRET_KEY;
 
 // The name of the bucket that you have created
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
@@ -84,27 +84,27 @@ exports.uploadOnS3 = async (name, path, bucketName) => {
 exports.removeFromS3 = async (fileName, bucketName) => {
     try {
         return new Promise(async (resolve, reject) => {
-        
+
             const params = {
                 Bucket: bucketName ? `${process.env.S3_BUCKET_NAME}/${bucketName}` : process.env.S3_BUCKET_NAME,
-                Key: fileName,  
+                Key: fileName,
             }
-        
+
             try {
-            //    let fileExists;
-            //     s3.headObject(params, function(err, data) {
-            //     if (err) console.log(err,err.code); // an error occurred
-            //     else     
-            //     {   
-            //         fileExists=data;
-            //         console.log(data);
-            //     }           // successful response
-            // });
-            //    if(fileExists){
-               const uploadedImage = await s3.deleteObject(params).promise();
+                //    let fileExists;
+                //     s3.headObject(params, function(err, data) {
+                //     if (err) console.log(err,err.code); // an error occurred
+                //     else     
+                //     {   
+                //         fileExists=data;
+                //         console.log(data);
+                //     }           // successful response
+                // });
+                //    if(fileExists){
+                const uploadedImage = await s3.deleteObject(params).promise();
                 return resolve({ error: false, data: uploadedImage, message: "File Deleted Successfully" });
-               //}
-               //return resolve({ error: false,  message: "File Deleted Successfully" });
+                //}
+                //return resolve({ error: false,  message: "File Deleted Successfully" });
             } catch (error) {
                 console.log("error", error);
                 return reject({ error: true, data: null, message: error.message });
