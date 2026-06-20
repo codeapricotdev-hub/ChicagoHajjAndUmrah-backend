@@ -1,6 +1,7 @@
 const ServiceType = require("../../models/mobile/serviceType");
 const formidable = require("formidable");
 const { uploadOnS3 } = require("../../helpers/s3");
+const { parsePaginationParams, paginatedResponse } = require("../../helpers/pagination");
 console.log("ServiceType schema paths:", Object.keys(ServiceType.schema.paths));
 console.log("Model file location:", require.resolve("../../models/mobile/serviceType"));
 exports.createServiceType = async (req, res) => {
@@ -76,13 +77,22 @@ exports.createServiceType = async (req, res) => {
 };
 exports.getServiceTypes = async (req, res) => {
     try {
-        const data = await ServiceType.find()
-            .select('serviceId title description price processTime eligibility category status requirements importantNotes images createdAt')
-            .populate("serviceId", "title")
-            .sort({ createdAt: -1 });
+        const { page, limit, skip } = parsePaginationParams(req.query);
 
+        const [data, total] = await Promise.all([
+            ServiceType.find()
+                .select('serviceId title description price processTime eligibility category status requirements importantNotes images createdAt')
+                .populate("serviceId", "title")
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            ServiceType.countDocuments(),
+        ]);
 
-        res.json({ success: true, data });
+        res.json({
+            success: true,
+            data: paginatedResponse(data, page, limit, total),
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }

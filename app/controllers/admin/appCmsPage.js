@@ -1,6 +1,7 @@
 const AppCmsPage = require("../../models/mobile/appCmsPage");
 const { notifyAllActiveUsers } = require("../../helpers/mobile/userNotificationService");
 const { NOTIFICATION_ACTIONS } = require("../../helpers/mobile/notificationTemplates");
+const { parsePaginationParams, paginatedResponse } = require("../../helpers/pagination");
 
 const APP_VERSION_CMS_TYPE = "APP_VERSION";
 
@@ -62,14 +63,20 @@ exports.create = async (req, res) => {
 exports.list = async (req, res) => {
     try {
         const { filter } = req.query;
+        const { page, limit, skip } = parsePaginationParams(req.query);
         const query = {};
         if (filter) {
             query.type = { $regex: filter, $options: "i" };
         }
-        const rows = await AppCmsPage.find(query).sort({ type: 1 }).lean();
+
+        const [rows, total] = await Promise.all([
+            AppCmsPage.find(query).sort({ type: 1 }).skip(skip).limit(limit).lean(),
+            AppCmsPage.countDocuments(query),
+        ]);
+
         return res.json({
             success: true,
-            data: rows,
+            data: paginatedResponse(rows, page, limit, total),
             message: "CMS pages loaded",
         });
     } catch (err) {

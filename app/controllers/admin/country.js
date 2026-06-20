@@ -2,6 +2,7 @@ const Country = require('../../models/mobile/country');
 const formidable = require('formidable');
 const fs = require("fs");
 const path = require("path");
+const { parsePaginationParams, paginatedResponse } = require('../../helpers/pagination');
 
 exports.addCountry = async (req, res) => {
     try {
@@ -78,11 +79,16 @@ exports.updateCountry = async (req, res) => {
  */
 exports.getCountries = async (req, res) => {
     try {
-        const countries = await Country.find().sort({ countryName: 1 });
+        const { page, limit, skip } = parsePaginationParams(req.query);
+
+        const [countries, total] = await Promise.all([
+            Country.find().sort({ countryName: 1 }).skip(skip).limit(limit),
+            Country.countDocuments(),
+        ]);
 
         return res.status(200).json({
             success: true,
-            data: countries
+            data: paginatedResponse(countries, page, limit, total),
         });
     } catch (error) {
         console.error("Get Countries Error:", error);

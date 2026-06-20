@@ -1,6 +1,7 @@
 const Service = require('../../models/mobile/service');
 const formidable = require('formidable');
 const { uploadOnS3 } = require('../../helpers/s3');
+const { parsePaginationParams, paginatedResponse } = require('../../helpers/pagination');
 
 exports.createService = async (req, res) => {
     try {
@@ -89,9 +90,7 @@ exports.createService = async (req, res) => {
 
 exports.getServices = async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 10;
-        const skip = (page - 1) * limit;
+        const { page, limit, skip } = parsePaginationParams(req.query);
 
         const [services, total] = await Promise.all([
             Service.find({})
@@ -103,12 +102,7 @@ exports.getServices = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            data: {
-                data: services,          // ✅ IMPORTANT
-                total,
-                page,
-                limit
-            }
+            data: paginatedResponse(services, page, limit, total),
         });
     } catch (error) {
         console.error("Get services error:", error);

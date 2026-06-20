@@ -25,6 +25,7 @@ const {
 const {
     buildApplicationTrackingResponse,
 } = require("../../helpers/mobile/applicationTrackingResponse");
+const { parsePaginationParams, buildPaginationMeta } = require("../../helpers/pagination");
 
 const ADMIN_DOC_TYPES = ["VISA", "INSURANCE", "ITINERARY"];
 const DOCUMENT_STATUSES = ["PENDING", "APPROVED", "REJECTED"];
@@ -55,7 +56,8 @@ const createAuditLog = async ({
 
 exports.getApplications = async (req, res) => {
     try {
-        const { status, search, page = 1, limit = 10 } = req.query;
+        const { status, search } = req.query;
+        const { page, limit, skip } = parsePaginationParams(req.query);
         const query = {};
 
         if (status) {
@@ -77,23 +79,20 @@ exports.getApplications = async (req, res) => {
             ];
         }
 
-        const applications = await Application.find(query)
-            .populate("userId", "fullName email mobile")
-            .sort({ createdAt: -1 })
-            .skip((Math.max(1, Number(page)) - 1) * Math.max(1, Number(limit)))
-            .limit(Math.max(1, Number(limit)));
-
-        const total = await Application.countDocuments(query);
+        const [applications, total] = await Promise.all([
+            Application.find(query)
+                .populate("userId", "fullName email mobile")
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Application.countDocuments(query),
+        ]);
 
         return res.status(200).json({
             success: true,
             data: {
                 list: applications,
-                pagination: {
-                    page: Number(page),
-                    limit: Number(limit),
-                    total,
-                },
+                pagination: buildPaginationMeta(page, limit, total),
             },
         });
     } catch (error) {

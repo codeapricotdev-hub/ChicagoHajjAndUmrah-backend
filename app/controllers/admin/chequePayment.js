@@ -1,4 +1,5 @@
 const ChequePayment = require("../../models/mobile/chequePayment");
+const { parsePaginationParams, paginatedResponse } = require("../../helpers/pagination");
 
 exports.createChequePayment = async (req, res) => {
     try {
@@ -35,12 +36,17 @@ exports.createChequePayment = async (req, res) => {
 
 exports.getChequePayments = async (req, res) => {
     try {
-        const list = await ChequePayment.find({}).sort({ createdAt: -1 });
+        const { page, limit, skip } = parsePaginationParams(req.query);
+
+        const [list, total] = await Promise.all([
+            ChequePayment.find({}).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            ChequePayment.countDocuments(),
+        ]);
 
         return res.status(200).json({
             success: true,
             status: 200,
-            data: list,
+            data: paginatedResponse(list, page, limit, total),
             message: "Cheque payment details fetched successfully",
         });
     } catch (error) {

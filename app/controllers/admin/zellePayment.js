@@ -2,6 +2,7 @@ const formidable = require("formidable");
 const validator = require("validator");
 const ZellePayment = require("../../models/mobile/zellePayment");
 const { uploadOnS3 } = require("../../helpers/s3");
+const { parsePaginationParams, paginatedResponse } = require("../../helpers/pagination");
 
 const extractFile = (file) => {
     if (!file) return null;
@@ -122,13 +123,17 @@ exports.createZellePayment = async (req, res) => {
 
 exports.getZellePayments = async (req, res) => {
     try {
-        const payments = await ZellePayment.find({})
-            .sort({ createdAt: -1 });
+        const { page, limit, skip } = parsePaginationParams(req.query);
+
+        const [payments, total] = await Promise.all([
+            ZellePayment.find({}).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            ZellePayment.countDocuments(),
+        ]);
 
         return res.status(200).json({
             success: true,
             status: 200,
-            data: payments,
+            data: paginatedResponse(payments, page, limit, total),
             message: "Zelle payments fetched successfully",
         });
     } catch (error) {

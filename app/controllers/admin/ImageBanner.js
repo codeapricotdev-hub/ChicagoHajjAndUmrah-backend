@@ -1,6 +1,7 @@
 const ImageBanner = require('../../models/mobile/ImageBanner');
 const formidable = require('formidable');
 const { uploadOnS3 } = require('../../helpers/s3');
+const { parsePaginationParams, paginatedResponse } = require('../../helpers/pagination');
 const fs = require("fs");
 const path = require("path");
 
@@ -150,11 +151,16 @@ exports.getImageBannerById = async (req, res) => {
 /* LIST */
 exports.getImageBanners = async (req, res) => {
     try {
-        const banners = await ImageBanner.find().sort({ createdAt: -1 });
+        const { page, limit, skip } = parsePaginationParams(req.query);
+
+        const [banners, total] = await Promise.all([
+            ImageBanner.find().sort({ createdAt: -1 }).skip(skip).limit(limit),
+            ImageBanner.countDocuments(),
+        ]);
 
         res.json({
             success: true,
-            data: banners,
+            data: paginatedResponse(banners, page, limit, total),
         });
     } catch (error) {
         res.status(500).json({ success: false, message: "Server error" });
