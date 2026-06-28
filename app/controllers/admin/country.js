@@ -4,14 +4,34 @@ const fs = require("fs");
 const path = require("path");
 const { parsePaginationParams, paginatedResponse } = require('../../helpers/pagination');
 
+const COUNTRY_CODE_REGEX = /^\+\d{1,4}$/;
+
+const validateCountryCode = (countryCode) => {
+    if (!countryCode) {
+        return "Country code is required";
+    }
+    if (!COUNTRY_CODE_REGEX.test(countryCode.trim())) {
+        return "Country code must be in format +XX (e.g. +91, +1, +44)";
+    }
+    return null;
+};
+
 exports.addCountry = async (req, res) => {
     try {
-        const { countryName, status } = req.body;
+        const { countryName, countryCode, status } = req.body;
 
         if (!countryName) {
             return res.status(400).json({
                 success: false,
                 message: "Country name is required"
+            });
+        }
+
+        const countryCodeError = validateCountryCode(countryCode);
+        if (countryCodeError) {
+            return res.status(400).json({
+                success: false,
+                message: countryCodeError
             });
         }
 
@@ -25,6 +45,7 @@ exports.addCountry = async (req, res) => {
 
         const country = await Country.create({
             countryName,
+            countryCode: countryCode.trim(),
             status
         });
 
@@ -47,6 +68,17 @@ exports.addCountry = async (req, res) => {
 exports.updateCountry = async (req, res) => {
     try {
         const { id } = req.params;
+
+        if (req.body.countryCode !== undefined) {
+            const countryCodeError = validateCountryCode(req.body.countryCode);
+            if (countryCodeError) {
+                return res.status(400).json({
+                    success: false,
+                    message: countryCodeError
+                });
+            }
+            req.body.countryCode = req.body.countryCode.trim();
+        }
 
         const updated = await Country.findByIdAndUpdate(
             id,

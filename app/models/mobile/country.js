@@ -11,6 +11,15 @@ const countrySchema = new mongoose.Schema(
             trim: true,
             unique: true
         },
+        countryCode: {
+            type: String,
+            required: true,
+            trim: true,
+            validate: {
+                validator: (value) => /^\+\d{1,4}$/.test(value),
+                message: "Country code must be in format +XX (e.g. +91, +1, +44)"
+            }
+        },
         status: {
             type: String,
             enum: ["active", "inactive"],

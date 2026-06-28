@@ -13,7 +13,7 @@ exports.getCountries = async (req, res) => {
 
         const [country, total] = await Promise.all([
             Country.find(query)
-                .select('countryName status ') // Only return needed fields
+                .select('countryName countryCode status')
                 .sort({ countryName: -1 })
                 .lean(), // Use lean() for better performance
             Country.countDocuments(query)
@@ -56,7 +56,7 @@ exports.getCountryById = async (req, res) => {
             _id: id,
             status: 'active' // Only return active services
         })
-            .select('countryName status')
+            .select('countryName countryCode status')
             .lean();
 
         if (!country) {
