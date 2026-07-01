@@ -257,7 +257,9 @@ exports.editProfile = async (req, res) => {
         let incomingMobile = user.mobile;
 
         if (hasPhoneChangeInput) {
-            incomingMobile = String(phoneNumber).trim();
+
+
+            incomingMobile = phoneNumber ? String(phoneNumber).replace(/[^\d+]/g, "") : "";
 
             if (!incomingMobile) {
                 return res.status(400).json({

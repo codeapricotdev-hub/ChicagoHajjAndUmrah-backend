@@ -95,7 +95,7 @@ const appUserSchema = new mongoose.Schema(
         // Device metadata used for notification + analytics/debugging
         osType: {
             type: String,
-            enum: ["android", "ios"],
+            enum: ["android", "ios", null],
             default: null,
         },
         osVersion: {
@@ -116,7 +116,7 @@ const appUserSchema = new mongoose.Schema(
         },
         lastDeliveryStatus: {
             type: String,
-            enum: ["success", "failed", "pending"],
+            enum: ["success", "failed", "pending", null],
             default: null,
         },
     },

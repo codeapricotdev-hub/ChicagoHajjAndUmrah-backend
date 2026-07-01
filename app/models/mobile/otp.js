@@ -26,7 +26,7 @@ const otpSchema = new mongoose.Schema(
         },
         osType: {
             type: String,
-            enum: ["android", "ios"],
+            enum: ["android", "ios", null],
             default: null,
         },
         osVersion: {
@@ -47,7 +47,7 @@ const otpSchema = new mongoose.Schema(
         },
         lastDeliveryStatus: {
             type: String,
-            enum: ["success", "failed", "pending"],
+            enum: ["success", "failed", "pending", null],
             default: null,
         },
     },

@@ -126,8 +126,9 @@ const pickDefined = (obj = {}) =>
 exports.sendOtp = async (req, res) => {
     try {
         const { fullName, email, mobile, purpose } = req.body;
+        const normalizedMobile = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
 
-        if (!email && !mobile)
+        if (!email && !normalizedMobile)
             return res.status(400).json({ message: "Email or mobile required" });
 
         if (purpose === "register" && !fullName)
@@ -141,7 +142,7 @@ exports.sendOtp = async (req, res) => {
             const user = await AppUser.findOne({
                 $or: [
                     email ? { email } : null,
-                    mobile ? { mobile } : null
+                    normalizedMobile ? { mobile: normalizedMobile } : null
                 ].filter(Boolean)
             });
 
@@ -152,7 +153,7 @@ exports.sendOtp = async (req, res) => {
         // Delete old OTPs
         const filter = { purpose };
         if (email) filter.email = email;
-        if (mobile) filter.mobile = mobile;
+        if (normalizedMobile) filter.mobile = normalizedMobile;
 
         await Otp.deleteMany(filter);
 
@@ -162,7 +163,7 @@ exports.sendOtp = async (req, res) => {
 
         await Otp.create({
             email,
-            mobile,
+            mobile: normalizedMobile,
             otp,
             purpose,
             expiresAt: new Date(Date.now() + 5 * 60 * 1000),
@@ -497,7 +498,7 @@ exports.verifyOtp = async (req, res) => {
         } = req.body;
 
         const emailValue = email?.trim() || undefined;
-        const mobileValue = mobile?.trim() || undefined;
+        const mobileValue = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
         const otpValue = otp?.toString();
 
         if (purpose === "register" && !nationality) {
@@ -616,7 +617,7 @@ exports.verifyOtp = async (req, res) => {
         user = await AppUser.findOne({
             $or: [
                 email ? { email } : null,
-                mobile ? { mobile } : null
+                mobileValue ? { mobile: mobileValue } : null
             ].filter(Boolean)
         }).select("+password");
 
@@ -639,7 +640,7 @@ exports.verifyOtp = async (req, res) => {
             user = await AppUser.create({
                 fullName,
                 email,
-                mobile,
+                mobile: mobileValue,
                 password: hashedPassword,
                 isVerified: true,
                 nationality
