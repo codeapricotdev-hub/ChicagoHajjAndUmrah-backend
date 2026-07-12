@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const mongoose = require("mongoose");
 const AppUser = require("../../models/appUser");
+const AppCountry = require("../../models/mobile/country");
 const Otp = require("../../models/mobile/otp");
 const smtp = require("../../helpers/mail");
 const smsHelper = require("../../helpers/sms");
@@ -15,6 +17,44 @@ const validationError = (message) => {
     const err = new Error(message);
     err.isValidationError = true;
     return err;
+};
+
+const sendError = (res, status, message) =>
+    res.status(status).json({ success: false, message });
+
+const handleControllerError = (res, err, context) => {
+    console.error(`${context} Error:`, err);
+
+    if (err?.isValidationError) {
+        return sendError(res, 400, err.message);
+    }
+
+    if (err?.name === "ValidationError") {
+        return sendError(res, 400, err.message);
+    }
+
+    if (err?.name === "CastError") {
+        return sendError(res, 400, "Invalid request data");
+    }
+
+    if (err?.code === 11000) {
+        if (err.keyPattern?.email || err.message?.includes("email")) {
+            return sendError(res, 409, "Email already exists.");
+        }
+        if (err.keyPattern?.mobile || err.message?.includes("mobile")) {
+            return sendError(res, 409, "Mobile number already registered.");
+        }
+        return sendError(res, 409, "Duplicate entry");
+    }
+
+    return sendError(res, 500, err.message || "Internal server error");
+};
+
+const normalizeLooseOptionalString = (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed || undefined;
 };
 
 const normalizeOptionalString = (value, fieldName) => {
@@ -47,31 +87,49 @@ const normalizeOptionalBoolean = (value, fieldName) => {
 };
 
 const extractDeviceMetadata = (source = {}) => {
-    // Guide fields (mobile may also send legacy `fcmToken`)
     const tokenValue = source.deviceToken ?? source.fcmToken;
+    const meta = {};
 
-    return {
-        deviceToken: normalizeOptionalString(tokenValue, "deviceToken"),
-        osType: normalizeOptionalEnum(source.osType, DEVICE_OS_TYPES, "osType"),
-        osVersion: normalizeOptionalString(source.osVersion, "osVersion"),
-        deviceManufacturer: normalizeOptionalString(
-            source.deviceManufacturer,
-            "deviceManufacturer"
-        ),
-        notificationsEnabled: normalizeOptionalBoolean(
+    const deviceToken = normalizeLooseOptionalString(tokenValue);
+    if (deviceToken !== undefined) meta.deviceToken = deviceToken;
+
+    if (source.osType !== undefined && source.osType !== null && source.osType !== "") {
+        meta.osType = normalizeOptionalEnum(source.osType, DEVICE_OS_TYPES, "osType");
+    }
+
+    const osVersion = normalizeLooseOptionalString(source.osVersion);
+    if (osVersion !== undefined) meta.osVersion = osVersion;
+
+    const deviceManufacturer = normalizeLooseOptionalString(source.deviceManufacturer);
+    if (deviceManufacturer !== undefined) meta.deviceManufacturer = deviceManufacturer;
+
+    if (
+        source.notificationsEnabled !== undefined &&
+        source.notificationsEnabled !== null &&
+        source.notificationsEnabled !== ""
+    ) {
+        meta.notificationsEnabled = normalizeOptionalBoolean(
             source.notificationsEnabled,
             "notificationsEnabled"
-        ),
-        firebaseSdkVersion: normalizeOptionalString(
-            source.firebaseSdkVersion,
-            "firebaseSdkVersion"
-        ),
-        lastDeliveryStatus: normalizeOptionalEnum(
+        );
+    }
+
+    const firebaseSdkVersion = normalizeLooseOptionalString(source.firebaseSdkVersion);
+    if (firebaseSdkVersion !== undefined) meta.firebaseSdkVersion = firebaseSdkVersion;
+
+    if (
+        source.lastDeliveryStatus !== undefined &&
+        source.lastDeliveryStatus !== null &&
+        source.lastDeliveryStatus !== ""
+    ) {
+        meta.lastDeliveryStatus = normalizeOptionalEnum(
             source.lastDeliveryStatus,
             LAST_DELIVERY_STATUSES,
             "lastDeliveryStatus"
-        ),
-    };
+        );
+    }
+
+    return meta;
 };
 
 const mergeDeviceMetadata = (stored = {}, incoming = {}) => {
@@ -216,7 +274,7 @@ exports.sendOtp = async (req, res) => {
 
             if (matchedUser) {
                 if (normalizedEmail && matchedUser.email === normalizedEmail) {
-                    return res.status(400).json({ message: "Email already exists." });
+                    return sendError(res, 409, "Email already exists.");
                 }
                 if (
                     normalizedMobile &&
@@ -224,7 +282,7 @@ exports.sendOtp = async (req, res) => {
                         smsHelper.getMobileLookupVariants(normalizedMobile).includes(variant)
                     )
                 ) {
-                    return res.status(400).json({ message: "Phone number already in use" });
+                    return sendError(res, 409, "Mobile number already registered.");
                 }
             }
         } else {
@@ -234,7 +292,7 @@ exports.sendOtp = async (req, res) => {
             );
 
             if (!matchedUser)
-                return res.status(404).json({ message: "User not found" });
+                return sendError(res, 404, "User not found.");
         }
 
         const deliveryEmail = normalizedEmail || matchedUser?.email;
@@ -316,11 +374,7 @@ exports.sendOtp = async (req, res) => {
         return res.json(response);
 
     } catch (err) {
-        console.error("Send OTP Error:", err);
-        if (err?.isValidationError) {
-            return res.status(400).json({ message: err.message });
-        }
-        return res.status(500).json({ message: "Internal server error" });
+        return handleControllerError(res, err, "Send OTP");
     }
 };
 
@@ -633,7 +687,9 @@ exports.verifyOtp = async (req, res) => {
         } = req.body;
 
         const emailValue = email?.trim()?.toLowerCase() || undefined;
-        const mobileValue = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
+        const mobileValue = mobile
+            ? smsHelper.normalizePhoneForTwilio(mobile)
+            : undefined;
         const otpValue = otp?.toString();
 
         const normalizedPurpose = purpose === "forgot_password" ? "forgot-password" : purpose;
@@ -751,12 +807,10 @@ exports.verifyOtp = async (req, res) => {
         // FIND USER FOR OTHER PURPOSES
         // =========================================
 
-        user = await AppUser.findOne({
-            $or: [
-                emailValue ? { email: emailValue } : null,
-                mobileValue ? { mobile: mobileValue } : null
-            ].filter(Boolean)
-        }).select("+password");
+        user = await findUserByEmailOrMobile(emailValue, mobileValue);
+        if (user) {
+            user = await AppUser.findById(user._id).select("+password");
+        }
 
         if (!user && normalizedPurpose !== "register") {
             return res.status(404).json({
@@ -773,21 +827,17 @@ exports.verifyOtp = async (req, res) => {
         if (normalizedPurpose === "register") {
             if (user) {
                 if (emailValue && user.email === emailValue) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Email already exists."
-                    });
+                    return sendError(res, 409, "Email already exists.");
                 }
-                if (mobileValue && user.mobile === mobileValue) {
-                    return res.status(400).json({
-                        success: false,
-                        message: "Phone number already in use"
-                    });
+                if (
+                    mobileValue &&
+                    smsHelper.getMobileLookupVariants(user.mobile).some((variant) =>
+                        smsHelper.getMobileLookupVariants(mobileValue).includes(variant)
+                    )
+                ) {
+                    return sendError(res, 409, "Mobile number already registered.");
                 }
-                return res.status(400).json({
-                    success: false,
-                    message: "Email already exists."
-                });
+                return sendError(res, 409, "Email already exists.");
             }
 
             if (!password) {
@@ -812,17 +862,11 @@ exports.verifyOtp = async (req, res) => {
                 if (err.code === 11000) {
                     const isEmailDuplicate = err.message && err.message.includes("email");
                     if (isEmailDuplicate || Object.keys(err.keyPattern || {}).includes("email")) {
-                        return res.status(400).json({
-                            success: false,
-                            message: "Email already exists."
-                        });
+                        return sendError(res, 409, "Email already exists.");
                     }
                     const isMobileDuplicate = err.message && err.message.includes("mobile");
                     if (isMobileDuplicate || Object.keys(err.keyPattern || {}).includes("mobile")) {
-                        return res.status(400).json({
-                            success: false,
-                            message: "Phone number already in use"
-                        });
+                        return sendError(res, 409, "Mobile number already registered.");
                     }
                 }
                 throw err;
@@ -973,20 +1017,7 @@ exports.verifyOtp = async (req, res) => {
         });
 
     } catch (err) {
-
-        console.error(err);
-
-        if (err?.isValidationError) {
-            return res.status(400).json({
-                success: false,
-                message: err.message
-            });
-        }
-
-        return res.status(500).json({
-            success: false,
-            message: err.message
-        });
+        return handleControllerError(res, err, "Verify OTP");
     }
 };
 /* ================= RESEND OTP ================= */
@@ -996,9 +1027,39 @@ exports.resendOtp = async (req, res) => {
 };
 
 /* ================= PUBLIC APIs ================= */
-exports.register = (req, res) => {
-    req.body.purpose = "register";
-    return exports.sendOtp(req, res);
+exports.register = async (req, res) => {
+    try {
+        const { fullName, email, mobile, password, nationality } = req.body;
+
+        if (!fullName?.trim()) {
+            return sendError(res, 400, "Full name is required");
+        }
+        if (!email?.trim()) {
+            return sendError(res, 400, "Email is required");
+        }
+        if (!mobile?.trim()) {
+            return sendError(res, 400, "Mobile is required");
+        }
+        if (!password) {
+            return sendError(res, 400, "Password is required");
+        }
+        if (!nationality) {
+            return sendError(res, 400, "Nationality is required");
+        }
+        if (!mongoose.Types.ObjectId.isValid(nationality)) {
+            return sendError(res, 400, "Invalid nationality");
+        }
+
+        const country = await AppCountry.findById(nationality);
+        if (!country) {
+            return sendError(res, 400, "Invalid nationality");
+        }
+
+        req.body.purpose = "register";
+        return exports.sendOtp(req, res);
+    } catch (err) {
+        return handleControllerError(res, err, "Register");
+    }
 };
 
 exports.login = async (req, res) => {
@@ -1066,9 +1127,19 @@ exports.login = async (req, res) => {
     }
 };
 
-exports.forgotPassword = (req, res) => {
-    req.body.purpose = "forgot-password";
-    return exports.sendOtp(req, res);
+exports.forgotPassword = async (req, res) => {
+    try {
+        const { email, mobile } = req.body;
+
+        if (!email?.trim() && !mobile?.trim()) {
+            return sendError(res, 400, "Email or mobile is required");
+        }
+
+        req.body.purpose = "forgot-password";
+        return exports.sendOtp(req, res);
+    } catch (err) {
+        return handleControllerError(res, err, "Forgot Password");
+    }
 };
 
 exports.logout = async (req, res) => {
@@ -1103,9 +1174,117 @@ exports.logout = async (req, res) => {
     }
 };
 
-exports.changePassword = (req, res) => {
-    req.body.purpose = "change-password";
-    return exports.sendOtp(req, res);
+exports.changePassword = async (req, res) => {
+    try {
+        const {
+            currentPassword,
+            password,
+            oldPassword,
+            newPassword,
+            confirmPassword,
+            email,
+            mobile,
+        } = req.body;
+
+        const currentPwd = currentPassword || password || oldPassword;
+
+        if (!currentPwd || !newPassword || !confirmPassword) {
+            return sendError(
+                res,
+                400,
+                "currentPassword, newPassword, and confirmPassword are required"
+            );
+        }
+
+        if (newPassword !== confirmPassword) {
+            return sendError(res, 400, "New password and confirm password do not match");
+        }
+
+        if (String(newPassword).length < 6) {
+            return sendError(res, 400, "Password must be at least 6 characters");
+        }
+
+        if (currentPwd === newPassword) {
+            return sendError(
+                res,
+                400,
+                "New password must be different from the current password"
+            );
+        }
+
+        let user = req.user;
+
+        if (!user && req.headers.authorization) {
+            try {
+                const token = req.headers.authorization.split(" ")[1];
+                if (token) {
+                    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                    user = await AppUser.findById(decoded.userId);
+                }
+            } catch (tokenError) {
+                console.warn("Change Password token ignored:", tokenError.message);
+            }
+        }
+
+        if (!user) {
+            const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
+            const normalizedMobile = mobile
+                ? smsHelper.normalizePhoneForTwilio(mobile)
+                : undefined;
+
+            if (!normalizedEmail && !normalizedMobile) {
+                return sendError(res, 400, "Email or mobile is required");
+            }
+
+            user = await findUserByEmailOrMobile(normalizedEmail, normalizedMobile);
+        }
+
+        if (!user) {
+            return sendError(res, 404, "User not found");
+        }
+
+        user = await AppUser.findById(user._id).select("+password +refreshToken");
+        if (!user || user.isDeleted) {
+            return sendError(res, 404, "User not found");
+        }
+
+        const isMatch = await bcrypt.compare(currentPwd, user.password);
+        if (!isMatch) {
+            return sendError(res, 400, "Current password incorrect");
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+
+        const token = jwt.sign(
+            { userId: user._id, role: "USER" },
+            process.env.JWT_SECRET,
+            { expiresIn: "24h" }
+        );
+        const refreshToken = jwt.sign(
+            { userId: user._id, type: "refresh" },
+            process.env.REFRESH_SECRET,
+            { expiresIn: "7d" }
+        );
+
+        user.refreshToken = refreshToken;
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Password changed successfully",
+            token,
+            refreshToken,
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                mobile: user.mobile,
+                isVerified: user.isVerified,
+            },
+        });
+    } catch (err) {
+        return handleControllerError(res, err, "Change Password");
+    }
 };
 
 exports.getRefreshToken = async (req, res) => {
