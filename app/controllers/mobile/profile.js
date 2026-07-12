@@ -1,7 +1,7 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const User = require("../../models/appUser");
-const { sendOtpSms } = require("../../helpers/sms");
+const smsHelper = require("../../helpers/sms");
 const Otp = require("../../models/mobile/otp");
 const { uploadToS3 } = require("../../helpers/mobile/s3");
 const mongoose = require("mongoose");
@@ -259,7 +259,9 @@ exports.editProfile = async (req, res) => {
         if (hasPhoneChangeInput) {
 
 
-            incomingMobile = phoneNumber ? String(phoneNumber).replace(/[^\d+]/g, "") : "";
+            incomingMobile = phoneNumber
+                ? smsHelper.normalizePhoneForTwilio(String(phoneNumber))
+                : "";
 
             if (!incomingMobile) {
                 return res.status(400).json({
@@ -305,17 +307,32 @@ exports.editProfile = async (req, res) => {
                 expiresAt: new Date(Date.now() + 5 * 60 * 1000)
             });
 
+            try {
+                await smsHelper.sendOtpSms(incomingMobile, otp);
+            } catch (error) {
+                console.error("Profile change-mobile OTP SMS Error:", error.message);
+                return res.status(503).json({
+                    success: false,
+                    message: "Unable to deliver OTP. Please try again later.",
+                });
+            }
+
             user.pendingMobile = incomingMobile;
             user.pendingFullName = newName;
 
             await user.save();
 
-            return res.status(200).json({
+            const response = {
                 success: true,
                 requiresOtpVerification: true,
-                otp, // ❌ remove in production
                 message: "OTP sent to new mobile. Verify OTP to complete update."
-            });
+            };
+
+            if (process.env.NODE_ENV !== "PROD") {
+                response.otp = otp;
+            }
+
+            return res.status(200).json(response);
         }
 
         // ======================

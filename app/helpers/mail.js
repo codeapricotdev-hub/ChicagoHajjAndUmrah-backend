@@ -3,7 +3,17 @@ const path = require("path");
 const hbs = require("nodemailer-express-handlebars");
 const config = require("../../config/config");
 const sendGridMail = require('@sendgrid/mail');
-sendGridMail.setApiKey(process.env.SENDGRID_API_KEY_SG);
+
+const trimEnv = (value) =>
+  typeof value === "string" ? value.trim() : value;
+
+const sendGridApiKey =
+  trimEnv(process.env.SENDGRID_API_KEY_SG) ||
+  trimEnv(process.env.SENDGRID_API_KEY);
+
+if (sendGridApiKey) {
+  sendGridMail.setApiKey(sendGridApiKey);
+}
 
 let transport = nodemailer.createTransport({
   pool: true,
@@ -135,4 +145,50 @@ function formatPhoneNumber(phoneNumber) {
 }
 
 
-module.exports = { sendMail, setPasswordMail, sendMailSendGrid };
+const sendOtpEmail = async (toMail, otp) => {
+  const subject = "Your verification code";
+  const text = `Your OTP is ${otp}. Valid for 5 minutes.`;
+  const html = `<p>Your OTP is <strong>${otp}</strong>. Valid for 5 minutes.</p>`;
+  const fromAddress =
+    trimEnv(process.env.OTP_EMAIL_FROM) ||
+    trimEnv(process.env.SMTP_USER) ||
+    "noreply@chicagohajj.com";
+
+  if (sendGridApiKey) {
+    await sendGridMail.send({
+      to: toMail,
+      from: fromAddress,
+      subject,
+      text,
+      html,
+    });
+    return { channel: "email" };
+  }
+
+  const smtpHost = trimEnv(process.env.SMTP_HOST)?.replace(/,+$/, "");
+  const smtpUser = trimEnv(process.env.SMTP_USER);
+  const smtpPassword = trimEnv(process.env.SMTP_PASSWORD);
+
+  if (smtpHost && smtpUser && smtpPassword) {
+    const smtpTransport = nodemailer.createTransport({
+      pool: true,
+      host: smtpHost,
+      port: Number(trimEnv(process.env.SMTP_PORT)?.replace(/,+$/, "") || 465),
+      secure: String(trimEnv(process.env.SMTP_SECURE)).replace(/,+$/, "") === "true",
+      auth: { user: smtpUser, pass: smtpPassword },
+    });
+
+    await smtpTransport.sendMail({
+      from: smtpUser,
+      to: toMail,
+      subject,
+      text,
+      html,
+    });
+    return { channel: "email" };
+  }
+
+  throw new Error("Email delivery is not configured");
+};
+
+module.exports = { sendMail, setPasswordMail, sendMailSendGrid, sendOtpEmail };

@@ -3,7 +3,7 @@ const bcrypt = require("bcrypt");
 const AppUser = require("../../models/appUser");
 const Otp = require("../../models/mobile/otp");
 const smtp = require("../../helpers/mail");
-const { sendOtpSms } = require("../../helpers/sms");
+const smsHelper = require("../../helpers/sms");
 
 const generateOtp = () =>
     Math.floor(100000 + Math.random() * 900000).toString();
@@ -122,12 +122,79 @@ const pickDefined = (obj = {}) =>
         return acc;
     }, {});
 
+const normalizePurpose = (purpose) =>
+    purpose === "forgot_password" ? "forgot-password" : purpose;
+
+const getRuntimeEnv = () =>
+    (process.env.NODE_ENV || "DEV").trim().split(/\s+/)[0];
+
+const deliverOtp = async ({ email, mobile, otp }) => {
+    const attempts = [];
+    const failures = [];
+    const errors = {};
+
+    if (email) {
+        attempts.push("email");
+        try {
+            await smtp.sendOtpEmail(email, otp);
+        } catch (error) {
+            console.error("Send OTP Email Error:", error.message);
+            failures.push("email");
+            errors.email = error.message;
+        }
+    }
+
+    if (mobile) {
+        attempts.push("sms");
+        try {
+            await smsHelper.sendOtpSms(mobile, otp);
+        } catch (error) {
+            console.error("Send OTP SMS Error:", error.message);
+            failures.push("sms");
+            errors.sms = error.message;
+        }
+    }
+
+    return {
+        delivered: attempts.length > failures.length,
+        attempts,
+        failures,
+        errors,
+    };
+};
+
+const buildMobileQuery = (mobile) => {
+    const variants = smsHelper.getMobileLookupVariants(mobile);
+    if (!variants.length) return null;
+    return { mobile: { $in: variants } };
+};
+
+const findUserByEmailOrMobile = async (email, mobile) => {
+    const orConditions = [];
+
+    if (email) {
+        orConditions.push({ email });
+    }
+
+    const mobileQuery = buildMobileQuery(mobile);
+    if (mobileQuery) {
+        orConditions.push(mobileQuery);
+    }
+
+    if (!orConditions.length) return null;
+
+    return AppUser.findOne({ $or: orConditions });
+};
+
 /* ================= SEND OTP (CORE) ================= */
 exports.sendOtp = async (req, res) => {
     try {
-        const { fullName, email, mobile, purpose } = req.body;
+        const { fullName, email, mobile, purpose: rawPurpose } = req.body;
+        const purpose = normalizePurpose(rawPurpose);
         const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
-        const normalizedMobile = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
+        const normalizedMobile = mobile
+            ? smsHelper.normalizePhoneForTwilio(mobile)
+            : undefined;
 
         if (!normalizedEmail && !normalizedMobile)
             return res.status(400).json({ message: "Email or mobile required" });
@@ -139,40 +206,52 @@ exports.sendOtp = async (req, res) => {
         if (!allowedPurposes.includes(purpose))
             return res.status(400).json({ message: "Invalid purpose" });
 
-        if (purpose === "register") {
-            const existingUser = await AppUser.findOne({
-                $or: [
-                    normalizedEmail ? { email: normalizedEmail } : null,
-                    normalizedMobile ? { mobile: normalizedMobile } : null
-                ].filter(Boolean)
-            });
+        let matchedUser = null;
 
-            if (existingUser) {
-                if (normalizedEmail && existingUser.email === normalizedEmail) {
+        if (purpose === "register") {
+            matchedUser = await findUserByEmailOrMobile(
+                normalizedEmail,
+                normalizedMobile
+            );
+
+            if (matchedUser) {
+                if (normalizedEmail && matchedUser.email === normalizedEmail) {
                     return res.status(400).json({ message: "Email already exists." });
                 }
-                if (normalizedMobile && existingUser.mobile === normalizedMobile) {
+                if (
+                    normalizedMobile &&
+                    smsHelper.getMobileLookupVariants(matchedUser.mobile).some((variant) =>
+                        smsHelper.getMobileLookupVariants(normalizedMobile).includes(variant)
+                    )
+                ) {
                     return res.status(400).json({ message: "Phone number already in use" });
                 }
             }
-        }
+        } else {
+            matchedUser = await findUserByEmailOrMobile(
+                normalizedEmail,
+                normalizedMobile
+            );
 
-        if (purpose !== "register") {
-            const user = await AppUser.findOne({
-                $or: [
-                    normalizedEmail ? { email: normalizedEmail } : null,
-                    normalizedMobile ? { mobile: normalizedMobile } : null
-                ].filter(Boolean)
-            });
-
-            if (!user)
+            if (!matchedUser)
                 return res.status(404).json({ message: "User not found" });
         }
+
+        const deliveryEmail = normalizedEmail || matchedUser?.email;
+        const deliveryMobile = normalizedMobile ||
+            (matchedUser?.mobile
+                ? smsHelper.normalizePhoneForTwilio(matchedUser.mobile)
+                : undefined);
 
         // Delete old OTPs
         const filter = { purpose };
         if (normalizedEmail) filter.email = normalizedEmail;
-        if (normalizedMobile) filter.mobile = normalizedMobile;
+        if (normalizedMobile) {
+            const mobileVariants = smsHelper.getMobileLookupVariants(normalizedMobile);
+            filter.mobile = mobileVariants.length === 1
+                ? mobileVariants[0]
+                : { $in: mobileVariants };
+        }
 
         await Otp.deleteMany(filter);
 
@@ -189,15 +268,52 @@ exports.sendOtp = async (req, res) => {
             ...pickDefined(deviceMeta),
         });
 
-        // Send Email / SMS here
-        // if (email) await smtp.sendMailSendGrid(...)
-        if (mobile) await sendOtpSms(mobile, otp);
-
-        return res.json({
-            success: true,
-            otp: otp,
-            message: "OTP sent successfully"
+        const delivery = await deliverOtp({
+            email: deliveryEmail,
+            mobile: deliveryMobile,
+            otp,
         });
+
+        if (!delivery.delivered) {
+            const smsFailed = delivery.failures.includes("sms");
+            const emailFailed = delivery.failures.includes("email");
+            let message = "Unable to deliver OTP. Please try again later.";
+
+            if (smsFailed && deliveryMobile) {
+                message = delivery.errors.sms || message;
+            } else if (emailFailed && deliveryEmail) {
+                message = delivery.errors.email || message;
+            }
+
+            const runtimeEnv = getRuntimeEnv();
+
+            if (runtimeEnv === "PROD" || (deliveryMobile && runtimeEnv !== "test")) {
+                return res.status(503).json({
+                    success: false,
+                    message,
+                });
+            }
+
+            console.warn(
+                "OTP delivery skipped in non-production environment:",
+                delivery.failures.join(", ")
+            );
+        }
+
+        const response = {
+            success: true,
+            message: "OTP sent successfully",
+        };
+
+        // Expose OTP only in non-production environments for QA/debugging.
+        if (getRuntimeEnv() !== "PROD") {
+            response.otp = otp;
+            if (!delivery.delivered) {
+                response.deliverySkipped = true;
+            }
+        }
+
+        return res.json(response);
 
     } catch (err) {
         console.error("Send OTP Error:", err);
