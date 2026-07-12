@@ -39,6 +39,12 @@ router.post(
 router.get("/cheque-payments-details", mobileAuth, paymentController.getChequePayments);
 
 router.get(
+    "/status/:transactionId",
+    mobileAuth,
+    paymentController.getPaymentStatus
+);
+
+router.get(
     "/:reference",
     mobileAuth,
     paymentController.getPayment

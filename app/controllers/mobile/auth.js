@@ -126,9 +126,10 @@ const pickDefined = (obj = {}) =>
 exports.sendOtp = async (req, res) => {
     try {
         const { fullName, email, mobile, purpose } = req.body;
+        const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
         const normalizedMobile = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
 
-        if (!email && !normalizedMobile)
+        if (!normalizedEmail && !normalizedMobile)
             return res.status(400).json({ message: "Email or mobile required" });
 
         if (purpose === "register" && !fullName)
@@ -138,10 +139,28 @@ exports.sendOtp = async (req, res) => {
         if (!allowedPurposes.includes(purpose))
             return res.status(400).json({ message: "Invalid purpose" });
 
+        if (purpose === "register") {
+            const existingUser = await AppUser.findOne({
+                $or: [
+                    normalizedEmail ? { email: normalizedEmail } : null,
+                    normalizedMobile ? { mobile: normalizedMobile } : null
+                ].filter(Boolean)
+            });
+
+            if (existingUser) {
+                if (normalizedEmail && existingUser.email === normalizedEmail) {
+                    return res.status(400).json({ message: "Email already exists." });
+                }
+                if (normalizedMobile && existingUser.mobile === normalizedMobile) {
+                    return res.status(400).json({ message: "Phone number already in use" });
+                }
+            }
+        }
+
         if (purpose !== "register") {
             const user = await AppUser.findOne({
                 $or: [
-                    email ? { email } : null,
+                    normalizedEmail ? { email: normalizedEmail } : null,
                     normalizedMobile ? { mobile: normalizedMobile } : null
                 ].filter(Boolean)
             });
@@ -152,7 +171,7 @@ exports.sendOtp = async (req, res) => {
 
         // Delete old OTPs
         const filter = { purpose };
-        if (email) filter.email = email;
+        if (normalizedEmail) filter.email = normalizedEmail;
         if (normalizedMobile) filter.mobile = normalizedMobile;
 
         await Otp.deleteMany(filter);
@@ -162,7 +181,7 @@ exports.sendOtp = async (req, res) => {
         const deviceMeta = extractDeviceMetadata(req.body);
 
         await Otp.create({
-            email,
+            email: normalizedEmail,
             mobile: normalizedMobile,
             otp,
             purpose,
@@ -497,11 +516,13 @@ exports.verifyOtp = async (req, res) => {
             nationality
         } = req.body;
 
-        const emailValue = email?.trim() || undefined;
+        const emailValue = email?.trim()?.toLowerCase() || undefined;
         const mobileValue = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
         const otpValue = otp?.toString();
 
-        if (purpose === "register" && !nationality) {
+        const normalizedPurpose = purpose === "forgot_password" ? "forgot-password" : purpose;
+
+        if (normalizedPurpose === "register" && !nationality) {
             return res.status(400).json({
                 success: false,
                 message: "Nationality is required"
@@ -519,7 +540,7 @@ exports.verifyOtp = async (req, res) => {
             record = await Otp.findOne({
                 email: emailValue,
                 otp: otpValue,
-                purpose,
+                purpose: normalizedPurpose,
                 expiresAt: { $gt: new Date() }
             });
 
@@ -528,7 +549,7 @@ exports.verifyOtp = async (req, res) => {
             record = await Otp.findOne({
                 mobile: mobileValue,
                 otp: otpValue,
-                purpose,
+                purpose: normalizedPurpose,
                 expiresAt: { $gt: new Date() }
             });
         }
@@ -553,7 +574,7 @@ exports.verifyOtp = async (req, res) => {
         // CHANGE MOBILE FLOW
         // =========================================
 
-        if (purpose === "change-mobile") {
+        if (normalizedPurpose === "change-mobile") {
 
             user = await AppUser.findById(record.userId)
                 .select("+pendingMobile +pendingFullName");
@@ -616,17 +637,42 @@ exports.verifyOtp = async (req, res) => {
 
         user = await AppUser.findOne({
             $or: [
-                email ? { email } : null,
+                emailValue ? { email: emailValue } : null,
                 mobileValue ? { mobile: mobileValue } : null
             ].filter(Boolean)
         }).select("+password");
+
+        if (!user && normalizedPurpose !== "register") {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
 
 
         // =========================================
         // REGISTER
         // =========================================
 
-        if (!user && purpose === "register") {
+        if (normalizedPurpose === "register") {
+            if (user) {
+                if (emailValue && user.email === emailValue) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Email already exists."
+                    });
+                }
+                if (mobileValue && user.mobile === mobileValue) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Phone number already in use"
+                    });
+                }
+                return res.status(400).json({
+                    success: false,
+                    message: "Email already exists."
+                });
+            }
 
             if (!password) {
                 return res.status(400).json({
@@ -637,14 +683,34 @@ exports.verifyOtp = async (req, res) => {
             const hashedPassword =
                 await bcrypt.hash(password, 10);
 
-            user = await AppUser.create({
-                fullName,
-                email,
-                mobile: mobileValue,
-                password: hashedPassword,
-                isVerified: true,
-                nationality
-            });
+            try {
+                user = await AppUser.create({
+                    fullName,
+                    email: emailValue,
+                    mobile: mobileValue,
+                    password: hashedPassword,
+                    isVerified: true,
+                    nationality
+                });
+            } catch (err) {
+                if (err.code === 11000) {
+                    const isEmailDuplicate = err.message && err.message.includes("email");
+                    if (isEmailDuplicate || Object.keys(err.keyPattern || {}).includes("email")) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "Email already exists."
+                        });
+                    }
+                    const isMobileDuplicate = err.message && err.message.includes("mobile");
+                    if (isMobileDuplicate || Object.keys(err.keyPattern || {}).includes("mobile")) {
+                        return res.status(400).json({
+                            success: false,
+                            message: "Phone number already in use"
+                        });
+                    }
+                }
+                throw err;
+            }
         }
 
 
@@ -652,7 +718,7 @@ exports.verifyOtp = async (req, res) => {
         // LOGIN
         // =========================================
 
-        if (user && purpose === "login") {
+        if (user && normalizedPurpose === "login") {
 
             if (emailValue) {
 
@@ -680,7 +746,7 @@ exports.verifyOtp = async (req, res) => {
         // CHANGE PASSWORD
         // =========================================
 
-        if (user && purpose === "change-password") {
+        if (user && normalizedPurpose === "change-password") {
 
             const {
                 password,
@@ -720,6 +786,29 @@ exports.verifyOtp = async (req, res) => {
 
             user.password =
                 await bcrypt.hash(newPassword, 10);
+        }
+
+
+        // =========================================
+        // FORGOT PASSWORD
+        // =========================================
+
+        if (user && normalizedPurpose === "forgot-password") {
+            if (!password) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Password required"
+                });
+            }
+
+            if (password.length < 6) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Password must be at least 6 characters"
+                });
+            }
+
+            user.password = await bcrypt.hash(password, 10);
         }
 
 

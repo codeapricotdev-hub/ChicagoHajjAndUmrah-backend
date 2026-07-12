@@ -19,6 +19,10 @@ const {
     handleStripeWebhook,
 } = require("../../helpers/mobile/stripeWebhookHandler");
 const { notifyUserPaymentSubmitted } = require("../../helpers/mobile/userNotificationService");
+const {
+    isTransactionIdentifier,
+    normalizeTransactionIdentifier,
+} = require("../../helpers/mobile/applicationIdentifier");
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -502,6 +506,60 @@ exports.getChequePayments = async (req, res) => {
             success: false,
             message: "Something went wrong",
             error: error.message,
+        });
+    }
+};
+
+exports.getPaymentStatus = async (req, res) => {
+    try {
+        const { transactionId } = req.params;
+
+        if (!transactionId) {
+            return res.status(400).json({
+                success: false,
+                message: "Transaction ID is required",
+            });
+        }
+
+        // const normalizedTxnId = normalizeTransactionIdentifier(transactionId);
+
+        // if (!isTransactionIdentifier(normalizedTxnId)) {
+        //     return res.status(400).json({
+        //         success: false,
+        //         message: "Invalid transaction ID format",
+        //     });
+        // }
+
+        const payment = await Payment.findOne({
+            transactionId: transactionId,
+            userId: req.user._id,
+        });
+
+        if (!payment) {
+            return res.status(404).json({
+                success: false,
+                message: "Payment not found",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                transactionId: payment.transactionId,
+                paymentId: payment._id,
+                status: payment.status,
+                paymentMode: payment.paymentMode,
+                amount: payment.amount,
+                adminRemark: payment.adminRemark || null,
+                createdAt: payment.createdAt,
+                updatedAt: payment.updatedAt,
+            },
+        });
+    } catch (error) {
+        console.error("GET PAYMENT STATUS ERROR", error);
+        return res.status(500).json({
+            success: false,
+            message: "Something went wrong",
         });
     }
 };
