@@ -332,7 +332,11 @@ exports.sendOtp = async (req, res) => {
             otp,
         });
 
-        if (!delivery.delivered) {
+        // Registration must succeed even when SMS/email delivery fails.
+        // OTP is already persisted; client can resend or use non-prod otp field.
+        const allowDeliveryFailure = purpose === "register";
+
+        if (!delivery.delivered && !allowDeliveryFailure) {
             const smsFailed = delivery.failures.includes("sms");
             const emailFailed = delivery.failures.includes("email");
             let message = "Unable to deliver OTP. Please try again later.";
@@ -356,11 +360,21 @@ exports.sendOtp = async (req, res) => {
                 "OTP delivery skipped in non-production environment:",
                 delivery.failures.join(", ")
             );
+        } else if (!delivery.delivered && allowDeliveryFailure) {
+            console.warn(
+                "Registration OTP delivery failed (continuing):",
+                delivery.failures.join(", "),
+                delivery.errors
+            );
         }
 
         const response = {
             success: true,
-            message: "OTP sent successfully",
+            message: delivery.delivered
+                ? "OTP sent successfully"
+                : allowDeliveryFailure
+                    ? "Registration OTP created. Delivery pending — please use resend if needed."
+                    : "OTP sent successfully",
         };
 
         // Expose OTP only in non-production environments for QA/debugging.
@@ -944,8 +958,8 @@ exports.verifyOtp = async (req, res) => {
                 });
             }
 
-            user.password =
-                await bcrypt.hash(newPassword, 10);
+            user.password = await bcrypt.hash(newPassword, 10);
+            user.markModified("password");
         }
 
 
@@ -969,6 +983,7 @@ exports.verifyOtp = async (req, res) => {
             }
 
             user.password = await bcrypt.hash(password, 10);
+            user.markModified("password");
         }
 
 
@@ -1253,7 +1268,7 @@ exports.changePassword = async (req, res) => {
             return sendError(res, 400, "Current password incorrect");
         }
 
-        user.password = await bcrypt.hash(newPassword, 10);
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
 
         const token = jwt.sign(
             { userId: user._id, role: "USER" },
@@ -1266,8 +1281,17 @@ exports.changePassword = async (req, res) => {
             { expiresIn: "7d" }
         );
 
-        user.refreshToken = refreshToken;
-        await user.save();
+        // Persist via $set so the password field is always written to MongoDB
+        // (avoids document-state / select:false edge cases with save()).
+        const updated = await AppUser.findByIdAndUpdate(
+            user._id,
+            { $set: { password: hashedPassword, refreshToken } },
+            { new: true }
+        );
+
+        if (!updated) {
+            return sendError(res, 404, "User not found");
+        }
 
         return res.status(200).json({
             success: true,
@@ -1275,11 +1299,11 @@ exports.changePassword = async (req, res) => {
             token,
             refreshToken,
             user: {
-                id: user._id,
-                fullName: user.fullName,
-                email: user.email,
-                mobile: user.mobile,
-                isVerified: user.isVerified,
+                id: updated._id,
+                fullName: updated.fullName,
+                email: updated.email,
+                mobile: updated.mobile,
+                isVerified: updated.isVerified,
             },
         });
     } catch (err) {

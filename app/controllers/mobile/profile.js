@@ -461,7 +461,7 @@ exports.changePassword = async (req, res) => {
             });
         }
 
-        user.password = await bcrypt.hash(newPassword, 10);
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
 
         const token = jwt.sign(
             { userId: user._id, role: "USER" },
@@ -473,8 +473,19 @@ exports.changePassword = async (req, res) => {
             process.env.REFRESH_SECRET,
             { expiresIn: "7d" }
         );
-        user.refreshToken = refreshToken;
-        await user.save();
+
+        const updated = await User.findByIdAndUpdate(
+            user._id,
+            { $set: { password: hashedPassword, refreshToken } },
+            { new: true }
+        );
+
+        if (!updated) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found",
+            });
+        }
 
         return res.status(200).json({
             success: true,
@@ -482,11 +493,11 @@ exports.changePassword = async (req, res) => {
             token,
             refreshToken,
             user: {
-                id: user._id,
-                fullName: user.fullName,
-                email: user.email,
-                mobile: user.mobile,
-                isVerified: user.isVerified,
+                id: updated._id,
+                fullName: updated.fullName,
+                email: updated.email,
+                mobile: updated.mobile,
+                isVerified: updated.isVerified,
             },
         });
     } catch (error) {
