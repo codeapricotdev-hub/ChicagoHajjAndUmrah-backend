@@ -285,9 +285,14 @@ exports.sendOtp = async (req, res) => {
                     return sendError(res, 409, "Mobile number already registered.");
                 }
             }
+        } else if (normalizedEmail) {
+            // Email takes priority when present
+            matchedUser = await AppUser.findOne({ email: normalizedEmail });
+            if (!matchedUser)
+                return sendError(res, 404, "User not found.");
         } else {
             matchedUser = await findUserByEmailOrMobile(
-                normalizedEmail,
+                undefined,
                 normalizedMobile
             );
 
@@ -295,11 +300,16 @@ exports.sendOtp = async (req, res) => {
                 return sendError(res, 404, "User not found.");
         }
 
-        const deliveryEmail = normalizedEmail || matchedUser?.email;
-        const deliveryMobile = normalizedMobile ||
-            (matchedUser?.mobile
-                ? smsHelper.normalizePhoneForTwilio(matchedUser.mobile)
-                : undefined);
+        // Delivery channel: email if provided, otherwise SMS. Never both when email is present.
+        let deliveryEmail;
+        let deliveryMobile;
+        if (normalizedEmail) {
+            deliveryEmail = normalizedEmail;
+            deliveryMobile = undefined;
+        } else if (normalizedMobile) {
+            deliveryEmail = undefined;
+            deliveryMobile = normalizedMobile;
+        }
 
         // Delete old OTPs
         const filter = { purpose };
@@ -322,6 +332,8 @@ exports.sendOtp = async (req, res) => {
             mobile: normalizedMobile,
             otp,
             purpose,
+            isVerified: false,
+            userId: matchedUser?._id || null,
             expiresAt: new Date(Date.now() + 5 * 60 * 1000),
             ...pickDefined(deviceMeta),
         });
@@ -727,15 +739,20 @@ exports.verifyOtp = async (req, res) => {
                 email: emailValue,
                 otp: otpValue,
                 purpose: normalizedPurpose,
+                isVerified: { $ne: true },
                 expiresAt: { $gt: new Date() }
             });
 
         } else if (mobileValue) {
 
+            const mobileVariants = smsHelper.getMobileLookupVariants(mobileValue);
             record = await Otp.findOne({
-                mobile: mobileValue,
+                mobile: mobileVariants.length === 1
+                    ? mobileVariants[0]
+                    : { $in: mobileVariants },
                 otp: otpValue,
                 purpose: normalizedPurpose,
+                isVerified: { $ne: true },
                 expiresAt: { $gt: new Date() }
             });
         }
@@ -752,7 +769,32 @@ exports.verifyOtp = async (req, res) => {
         const incomingDeviceMeta = extractDeviceMetadata(req.body);
         const deviceMeta = mergeDeviceMetadata(storedDeviceMeta, incomingDeviceMeta);
 
-        // single use otp
+        // =========================================
+        // FORGOT PASSWORD — verify OTP only (no password)
+        // =========================================
+
+        if (normalizedPurpose === "forgot-password") {
+            const matchedUser = await findUserByEmailOrMobile(emailValue, mobileValue);
+            if (!matchedUser) {
+                return res.status(404).json({
+                    success: false,
+                    message: "User not found"
+                });
+            }
+
+            record.isVerified = true;
+            record.userId = matchedUser._id;
+            // Invalidate the code so it cannot be re-verified; keep record for reset-password
+            record.otp = null;
+            await record.save();
+
+            return res.status(200).json({
+                success: true,
+                message: "OTP verified successfully."
+            });
+        }
+
+        // single use otp for all other purposes
         await Otp.deleteOne({ _id: record._id });
 
 
@@ -964,30 +1006,6 @@ exports.verifyOtp = async (req, res) => {
 
 
         // =========================================
-        // FORGOT PASSWORD
-        // =========================================
-
-        if (user && normalizedPurpose === "forgot-password") {
-            if (!password) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Password required"
-                });
-            }
-
-            if (password.length < 6) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Password must be at least 6 characters"
-                });
-            }
-
-            user.password = await bcrypt.hash(password, 10);
-            user.markModified("password");
-        }
-
-
-        // =========================================
         // TOKENS
         // =========================================
 
@@ -1150,10 +1168,119 @@ exports.forgotPassword = async (req, res) => {
             return sendError(res, 400, "Email or mobile is required");
         }
 
+        // Prefer email when both are sent
+        if (email?.trim() && mobile?.trim()) {
+            req.body.mobile = undefined;
+        }
+
         req.body.purpose = "forgot-password";
         return exports.sendOtp(req, res);
     } catch (err) {
         return handleControllerError(res, err, "Forgot Password");
+    }
+};
+
+/**
+ * Reset password after forgot-password OTP has been verified.
+ * Body: email|mobile, newPassword, confirmPassword
+ */
+exports.resetPassword = async (req, res) => {
+    try {
+        const {
+            email,
+            mobile,
+            newPassword,
+            confirmPassword,
+            password,
+        } = req.body;
+
+        const newPwd = newPassword || password;
+        const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
+        const normalizedMobile = mobile
+            ? smsHelper.normalizePhoneForTwilio(mobile)
+            : undefined;
+
+        if (!normalizedEmail && !normalizedMobile) {
+            return sendError(res, 400, "Email or mobile is required");
+        }
+
+        if (!newPwd || !confirmPassword) {
+            return sendError(
+                res,
+                400,
+                "newPassword and confirmPassword are required"
+            );
+        }
+
+        if (newPwd !== confirmPassword) {
+            return sendError(res, 400, "New password and confirm password do not match");
+        }
+
+        if (String(newPwd).length < 6) {
+            return sendError(res, 400, "Password must be at least 6 characters");
+        }
+
+        const otpFilter = {
+            purpose: "forgot-password",
+            isVerified: true,
+            expiresAt: { $gt: new Date() },
+        };
+
+        if (normalizedEmail) {
+            otpFilter.email = normalizedEmail;
+        } else {
+            const mobileVariants = smsHelper.getMobileLookupVariants(normalizedMobile);
+            otpFilter.mobile =
+                mobileVariants.length === 1
+                    ? mobileVariants[0]
+                    : { $in: mobileVariants };
+        }
+
+        const verifiedOtp = await Otp.findOne(otpFilter);
+        if (!verifiedOtp) {
+            return sendError(
+                res,
+                400,
+                "OTP not verified or expired. Please verify OTP again."
+            );
+        }
+
+        const user =
+            (verifiedOtp.userId
+                ? await AppUser.findById(verifiedOtp.userId)
+                : null) ||
+            (await findUserByEmailOrMobile(normalizedEmail, normalizedMobile));
+
+        if (!user || user.isDeleted) {
+            return sendError(res, 404, "User not found.");
+        }
+
+        const hashedPassword = await bcrypt.hash(newPwd, 10);
+        await AppUser.findByIdAndUpdate(user._id, {
+            $set: { password: hashedPassword },
+        });
+
+        // Clear forgot-password OTPs for this identifier
+        const clearFilter = { purpose: "forgot-password" };
+        if (normalizedEmail) clearFilter.email = normalizedEmail;
+        if (normalizedMobile) {
+            const mobileVariants = smsHelper.getMobileLookupVariants(normalizedMobile);
+            clearFilter.mobile =
+                mobileVariants.length === 1
+                    ? mobileVariants[0]
+                    : { $in: mobileVariants };
+        }
+        await Otp.deleteMany(clearFilter);
+        if (verifiedOtp._id) {
+            await Otp.deleteOne({ _id: verifiedOtp._id });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Password updated successfully.",
+        });
+    } catch (err) {
+        return handleControllerError(res, err, "Reset Password");
     }
 };
 

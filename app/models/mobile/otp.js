@@ -17,6 +17,11 @@ const otpSchema = new mongoose.Schema(
             type: String,
             enum: ["register", "login", "forgot-password", "change-password", "change-mobile"],
         },
+        // Set true after verify-otp in forgot-password flow; consumed by reset-password
+        isVerified: {
+            type: Boolean,
+            default: false,
+        },
         expiresAt: Date,
 
         // Device metadata captured during OTP request and applied on verify-otp
