@@ -126,6 +126,9 @@ exports.createInquary = async (req, res) => {
                 createObject["mobileNumber"] = req.body.mobileNumber;
                 createObject["totalTravellers"] = req.body.totalTravellers;
                 createObject["extra_option"] = req.body.extra_option;
+                createObject["userId"] = req.body.userId || (req.user ? req.user._id : null);
+                createObject["country"] = req.body.country || null;
+                createObject["message"] = req.body.message || "";
                 typeForMail = "Umrah";
                 break;
             case "tourInquiry":

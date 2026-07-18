@@ -163,6 +163,29 @@ const Inquiry = new mongoose.Schema(
         },
         destination: {
             type: String
+        },
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "AppUser",
+            index: true,
+            default: null
+        },
+        country: {
+            type: String,
+            default: null
+        },
+        replyMessage: {
+            type: String,
+            default: ""
+        },
+        repliedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            default: null
+        },
+        replyDate: {
+            type: Date,
+            default: null
         }
     },
     {
