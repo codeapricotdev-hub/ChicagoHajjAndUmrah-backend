@@ -27,4 +27,6 @@ exports.default = {
   PackageInquiryAssignee: require("./packageInquiryAssignee"),
   PackageIcon: require("./packageIcon"),
   Banner: require("./banner"),
+  MobileInquiry: require("./MobileInquiry"),
 };
+
