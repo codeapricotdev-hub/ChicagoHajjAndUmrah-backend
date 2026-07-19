@@ -171,9 +171,13 @@ exports.sendOtp = async (req, res) => {
         });
 
         // Send Email / SMS here
-        // if (email) await smtp.sendMailSendGrid(...)
-        if (mobile) await sendOtpSms(mobile, otp);
+        if (email) {
+            await smtp.sendOtpEmail(email, otp);
+        }
 
+        if (mobile) {
+            await sendOtpSms(mobile, otp);
+        }
         return res.json({
             success: true,
             otp: otp,
