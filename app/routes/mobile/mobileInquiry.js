@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const controller = require("../../controllers/mobile/mobileInquiry");
+const controller = require("../../controllers/mobileInquiry");
 
 router.post("/", controller.createInquiry);
 
