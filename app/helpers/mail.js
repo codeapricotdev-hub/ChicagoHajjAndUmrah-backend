@@ -192,7 +192,9 @@ const sendOtpEmail = async (toMail, otp) => {
 };
 
 const sendOtpEmailviaSG = async (toMail, otp) => {
-  const subject = "Your Verification Code";
+  const subject = "Your verification code";
+  const text = `Your OTP is ${otp}. Valid for 1 minute.`;
+  const html = `<p>Your OTP is <strong>${otp}</strong>. Valid for 1 minute.</p>`;
   const fromAddress =
     trimEnv(process.env.OTP_EMAIL_FROM) ||
     trimEnv(process.env.SMTP_USER) ||
