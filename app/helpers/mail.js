@@ -193,7 +193,10 @@ const sendOtpEmail = async (toMail, otp) => {
 
 const sendOtpEmailviaSG = async (toMail, otp) => {
   const subject = "Your Verification Code";
-
+  const fromAddress =
+    trimEnv(process.env.OTP_EMAIL_FROM) ||
+    trimEnv(process.env.SMTP_USER) ||
+    "noreply@chicagohajj.com";
   try {
     const response = await sendGridMail.send({
       to: toMail,
