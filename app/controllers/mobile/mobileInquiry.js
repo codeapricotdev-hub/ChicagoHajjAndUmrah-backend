@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-const models = require("../models").default;
-const db = require("../middleware/db");
+const models = require("../../models").default;
+const db = require("../../middleware/db");
 
 // 1. createInquiry()
 exports.createInquiry = async (req, res) => {
