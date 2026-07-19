@@ -176,6 +176,7 @@ exports.getInquiryById = async (req, res) => {
     }
 };
 
+
 // 4. deleteInquiry()
 exports.deleteInquiry = async (req, res) => {
     try {
