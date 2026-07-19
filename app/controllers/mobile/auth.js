@@ -172,7 +172,7 @@ exports.sendOtp = async (req, res) => {
 
         // Send Email / SMS here
         if (email) {
-            await smtp.sendOtpEmail(email, otp);
+            await smtp.sendOtpEmailviaSG(email, otp);
         }
 
         if (mobile) {
@@ -185,11 +185,14 @@ exports.sendOtp = async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Send OTP Error:", err);
-        if (err?.isValidationError) {
-            return res.status(400).json({ message: err.message });
-        }
-        return res.status(500).json({ message: "Internal server error" });
+        console.error("========== SEND OTP ERROR ==========");
+        console.error(err);
+        console.error(err.stack);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
     }
 };
 

@@ -78,18 +78,18 @@ const sendMailSendGrid = async (toMail, subject, template, context, referenceId)
 
   return new Promise(async (resolve, reject) => {
     try {
-      let contact_no=formatPhoneNumber(context.mobileNumber);
+      let contact_no = formatPhoneNumber(context.mobileNumber);
       const msg = {
         from: "noreply@chicagohajj.com",//process.env.SMTP_USER,
         templateId: template,
-        subject: context.subject_for_user?context.subject_for_user:subject,
+        subject: context.subject_for_user ? context.subject_for_user : subject,
         to: toMail,
         dynamic_template_data: {
           fullName: context.fullName,
           type: context.type,
           password: context.password,
           email: context.email,
-          token:context.token,
+          token: context.token,
           mobileNumber: contact_no
         },
       };
@@ -107,7 +107,7 @@ const sendMailSendGrid = async (toMail, subject, template, context, referenceId)
             type: context.type,
             email: context.email,
             mobileNumber: contact_no,
-            option: context.option?context.option:"-",
+            option: context.option ? context.option : "-",
             refNo: referenceId
           },
         };
@@ -118,7 +118,7 @@ const sendMailSendGrid = async (toMail, subject, template, context, referenceId)
       console.log("result", result);
       return resolve(true);
     } catch (error) {
-      console.log("error in mail",error);
+      console.log("error in mail", error);
       console.log("error ::=> ", JSON.stringify(error, null, 2), error.code);
       if (error.code === "EAUTH") {
         return reject({ code: 401, message: "Invalid SMTP Details" });
@@ -133,7 +133,7 @@ function formatPhoneNumber(phoneNumber) {
 
   // Check if the input is a valid 10-digit number
   if (cleaned.length !== 10) {
-      return phoneNumber;
+    return phoneNumber;
   }
 
   // Format the number
@@ -191,4 +191,23 @@ const sendOtpEmail = async (toMail, otp) => {
   throw new Error("Email delivery is not configured");
 };
 
-module.exports = { sendMail, setPasswordMail, sendMailSendGrid, sendOtpEmail };
+const sendOtpEmailviaSG = async (toMail, otp) => {
+  const subject = "Your Verification Code";
+
+  await sendGridMail.send({
+    to: toMail,
+    from: process.env.OTP_EMAIL_FROM,
+    subject,
+    text: `Your OTP is ${otp}. It is valid for 5 minutes.`,
+    html: `
+            <h2>Chicago Hajj & Umrah</h2>
+            <p>Your OTP is:</p>
+            <h1>${otp}</h1>
+            <p>This OTP is valid for 5 minutes.</p>
+        `
+  });
+
+  return true;
+};
+
+module.exports = { sendMail, setPasswordMail, sendMailSendGrid, sendOtpEmail, sendOtpEmailviaSG };
