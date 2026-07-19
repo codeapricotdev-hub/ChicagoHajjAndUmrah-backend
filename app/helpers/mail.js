@@ -194,18 +194,21 @@ const sendOtpEmail = async (toMail, otp) => {
 const sendOtpEmailviaSG = async (toMail, otp) => {
   const subject = "Your Verification Code";
 
-  await sendGridMail.send({
-    to: toMail,
-    from: process.env.OTP_EMAIL_FROM,
-    subject,
-    text: `Your OTP is ${otp}. It is valid for 5 minutes.`,
-    html: `
-            <h2>Chicago Hajj & Umrah</h2>
-            <p>Your OTP is:</p>
-            <h1>${otp}</h1>
-            <p>This OTP is valid for 5 minutes.</p>
-        `
-  });
+  try {
+    const response = await sendGridMail.send({
+      to: toMail,
+      from: fromAddress,
+      subject,
+      text,
+      html,
+    });
+
+    console.log("SendGrid Response:", response);
+  } catch (error) {
+    console.log("========== SENDGRID ERROR ==========");
+    console.log(error.response?.body || error);
+    throw error;
+  }
 
   return true;
 };
