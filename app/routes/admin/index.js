@@ -12,7 +12,7 @@ route.use("/videoGalleryCategory", require("./videoGalleryCategory"));
 route.use("/imageGalleryCategory", require("./imageGalleryCategory"));
 route.use("/airport", require("./airport"));
 route.use("/inquiry", require("./inquiry"));
-route.use("/api/admin/mobile-inquiries", require("./mobileInquiry.routes"));
+route.use("/api/admin/mobile-inquiries", require("./mobileInquiry"));
 route.use("/packages", require("./packages"));
 route.use("/packagesBoxDetails", require("./packagesBoxDetails"));
 route.use("/packagesPricing", require("./packagePricing"));

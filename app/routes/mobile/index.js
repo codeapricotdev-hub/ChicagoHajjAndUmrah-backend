@@ -15,7 +15,7 @@ router.use("/checkout", require("./checkout"));
 router.use("/profile", require("./profile"));
 router.use("/cms", require("./cms"));
 router.use("/notifications", require("./notification"));
-router.use("/inquiry", require("./mobileInquiry.routes"));
+router.use("/inquiry", require("./mobileInquiry"));
 console.log('✅ Mobile services route registered'); // ✅ ADD THIS
 
 module.exports = router;
