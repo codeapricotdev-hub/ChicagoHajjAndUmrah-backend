@@ -192,9 +192,36 @@ const sendOtpEmail = async (toMail, otp) => {
 };
 
 const sendOtpEmailviaSG = async (toMail, otp) => {
-  const subject = "Your verification code";
+  const subject = "Chicago Hajj & Umrah - Your verification code";
   const text = `Your OTP is ${otp}. Valid for 1 minute.`;
-  const html = `<p>Your OTP is <strong>${otp}</strong>. Valid for 1 minute.</p>`;
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+</head>
+<body style="font-family: Arial, sans-serif; background:#f5f5f5; padding:30px;">
+    <div style="max-width:600px;margin:auto;background:#fff;padding:30px;border-radius:8px;">
+        <h2>Chicago Hajj & Umrah</h2>
+
+        <p>Hello,</p>
+        <p>Your Your One-Time Password (OTP) is </p>
+
+        <h1 style="letter-spacing:5px;">${otp}</h1>
+
+        <p>This OTP is valid for <strong>1 minute</strong>.</p>
+
+        <p>If you did not request this OTP, please ignore this email.</p>
+
+        <hr>
+
+        <small>
+            This is an automated email from Chicago Hajj & Umrah.
+            Please do not reply.
+        </small>
+    </div>
+</body>
+</html>
+`;
   const fromAddress =
     trimEnv(process.env.OTP_EMAIL_FROM) ||
     trimEnv(process.env.SMTP_USER) ||
