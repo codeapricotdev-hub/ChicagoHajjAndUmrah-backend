@@ -675,7 +675,7 @@ exports.verifyOtp = async (req, res) => {
 
         if (user && purpose === "login") {
 
-            if (emailValue) {
+            if (normalizedEmail) {
 
                 if (!password) {
                     return res.status(400).json({
