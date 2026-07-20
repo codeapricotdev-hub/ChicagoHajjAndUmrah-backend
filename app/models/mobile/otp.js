@@ -5,8 +5,15 @@ const aggregatePaginate = require('mongoose-aggregate-paginate-v2');
 
 const otpSchema = new mongoose.Schema(
     {
-        email: String,
-        mobile: String,
+        email: {
+            type: String,
+            lowercase: true,
+            trim: true
+        },
+        mobile: {
+            type: String,
+            trim: true
+        },
         otp: String,
         userId: {
             type: mongoose.Schema.Types.ObjectId,

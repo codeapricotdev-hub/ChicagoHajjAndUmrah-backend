@@ -126,9 +126,10 @@ const pickDefined = (obj = {}) =>
 exports.sendOtp = async (req, res) => {
     try {
         const { fullName, email, mobile, purpose } = req.body;
-        const normalizedMobile = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
+        const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
+        const normalizedMobile = mobile ? String(mobile).replace(/[^\d+]/g, "") : undefined;
 
-        if (!email && !normalizedMobile)
+        if (!normalizedEmail && !normalizedMobile)
             return res.status(400).json({ message: "Email or mobile required" });
 
         if (purpose === "register" && !fullName)
@@ -141,7 +142,7 @@ exports.sendOtp = async (req, res) => {
         if (purpose !== "register") {
             const user = await AppUser.findOne({
                 $or: [
-                    email ? { email } : null,
+                    normalizedEmail ? { email: normalizedEmail } : null,
                     normalizedMobile ? { mobile: normalizedMobile } : null
                 ].filter(Boolean)
             });
@@ -151,18 +152,21 @@ exports.sendOtp = async (req, res) => {
         }
 
         // Delete old OTPs
-        const filter = { purpose };
-        if (email) filter.email = email;
-        if (normalizedMobile) filter.mobile = normalizedMobile;
+        const deleteConditions = [];
+        if (normalizedEmail) deleteConditions.push({ email: normalizedEmail });
+        if (normalizedMobile) deleteConditions.push({ mobile: normalizedMobile });
 
-        await Otp.deleteMany(filter);
+        await Otp.deleteMany({
+            purpose,
+            $or: deleteConditions
+        });
 
         const otp = generateOtp().toString();
 
         const deviceMeta = extractDeviceMetadata(req.body);
 
         await Otp.create({
-            email,
+            email: normalizedEmail,
             mobile: normalizedMobile,
             otp,
             purpose,
@@ -171,12 +175,12 @@ exports.sendOtp = async (req, res) => {
         });
 
         // Send Email / SMS here
-        if (email) {
-            await smtp.sendOtpEmailviaSG(email, otp);
+        if (normalizedEmail) {
+            await smtp.sendOtpEmailviaSG(normalizedEmail, otp);
         }
 
-        if (mobile) {
-            await sendOtpSms(mobile, otp);
+        if (normalizedMobile) {
+            await sendOtpSms(normalizedMobile, otp);
         }
         return res.json({
             success: true,
@@ -504,9 +508,9 @@ exports.verifyOtp = async (req, res) => {
             nationality
         } = req.body;
 
-        const emailValue = email?.trim() || undefined;
-        const mobileValue = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
-        const otpValue = otp?.toString();
+        const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
+        const normalizedMobile = mobile ? String(mobile).replace(/[^\d+]/g, "") : undefined;
+        const otpValue = otp ? String(otp).trim() : undefined;
 
         if (purpose === "register" && !nationality) {
             return res.status(400).json({
@@ -515,30 +519,34 @@ exports.verifyOtp = async (req, res) => {
             });
         }
 
+        if (!normalizedEmail && !normalizedMobile) {
+            return res.status(400).json({
+                success: false,
+                message: "Email or mobile number is required"
+            });
+        }
+
+        if (!otpValue) {
+            return res.status(400).json({
+                success: false,
+                message: "OTP is required"
+            });
+        }
+
         // =========================================
         // FIND OTP RECORD
         // =========================================
 
-        let record;
+        const orConditions = [];
+        if (normalizedEmail) orConditions.push({ email: normalizedEmail });
+        if (normalizedMobile) orConditions.push({ mobile: normalizedMobile });
 
-        if (emailValue) {
-
-            record = await Otp.findOne({
-                email: emailValue,
-                otp: otpValue,
-                purpose,
-                expiresAt: { $gt: new Date() }
-            });
-
-        } else if (mobileValue) {
-
-            record = await Otp.findOne({
-                mobile: mobileValue,
-                otp: otpValue,
-                purpose,
-                expiresAt: { $gt: new Date() }
-            });
-        }
+        const record = await Otp.findOne({
+            $or: orConditions,
+            otp: otpValue,
+            purpose,
+            expiresAt: { $gt: new Date() }
+        }).sort({ createdAt: -1 });
 
         if (!record) {
             return res.status(400).json({
@@ -629,8 +637,8 @@ exports.verifyOtp = async (req, res) => {
 
         user = await AppUser.findOne({
             $or: [
-                email ? { email } : null,
-                mobileValue ? { mobile: mobileValue } : null
+                normalizedEmail ? { email: normalizedEmail } : null,
+                normalizedMobile ? { mobile: normalizedMobile } : null
             ].filter(Boolean)
         }).select("+password");
 
@@ -652,8 +660,8 @@ exports.verifyOtp = async (req, res) => {
 
             user = await AppUser.create({
                 fullName,
-                email,
-                mobile: mobileValue,
+                email: normalizedEmail,
+                mobile: normalizedMobile,
                 password: hashedPassword,
                 isVerified: true,
                 nationality
@@ -812,16 +820,19 @@ exports.register = (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { email, mobile, password } = req.body;
+        const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
+        const normalizedMobile = mobile ? String(mobile).replace(/[^\d+]/g, "") : undefined;
 
         // If login via phone → send OTP
-        if (mobile) {
+        if (normalizedMobile) {
+            req.body.mobile = normalizedMobile;
             req.body.purpose = "login";
             return exports.sendOtp(req, res);
         }
 
         // If login via email → verify password
-        if (email && password) {
-            const user = await AppUser.findOne({ email }).select("+password");;
+        if (normalizedEmail && password) {
+            const user = await AppUser.findOne({ email: normalizedEmail }).select("+password");
 
             if (!user)
                 return res.status(404).json({ message: "User not found" });
@@ -952,7 +963,7 @@ exports.getRefreshToken = async (req, res) => {
 exports.resetPassword = async (req, res) => {
     try {
         const { email, mobile, newPassword, confirmPassword } = req.body;
-        const normalizedEmail = email?.trim() || undefined;
+        const normalizedEmail = email ? String(email).trim().toLowerCase() : undefined;
         const normalizedMobile = mobile ? mobile.replace(/[^\d+]/g, "") : undefined;
 
         if (!normalizedEmail && !normalizedMobile) {
