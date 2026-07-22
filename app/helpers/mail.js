@@ -192,7 +192,7 @@ const sendOtpEmail = async (toMail, otp) => {
 };
 
 const sendOtpEmailviaSG = async (toMail, otp) => {
-  const subject = "Chicago Hajj & Umrah - Your verification code";
+  const subject = "Your Chicago Hajj & Umrah Verification Code";
   const text = `Your OTP is ${otp}. Valid for 1 minute.`;
   const html = `<!DOCTYPE html>
 <html>
@@ -229,7 +229,10 @@ const sendOtpEmailviaSG = async (toMail, otp) => {
   try {
     const response = await sendGridMail.send({
       to: toMail,
-      from: fromAddress,
+      from: {
+        email: fromAddress,
+        name: "Chicago Hajj & Umrah"
+      },
       subject,
       text,
       html,
