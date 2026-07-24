@@ -214,6 +214,8 @@ exports.createManualPayment = async (req, res) => {
             depositDate,
         });
 
+        await Application.updateOne({ _id: application._id }, { $set: { isCompleted: true } });
+
         await notifyUserPaymentSubmitted(payment);
 
         return res.status(201).json({

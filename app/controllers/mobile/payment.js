@@ -1,6 +1,7 @@
 const { uploadToS3 } = require("../../helpers/mobile/s3");
 const Stripe = require("stripe");
 const Payment = require("../../models/mobile/payment");
+const Application = require("../../models/mobile/application");
 const ZellePayment = require("../../models/mobile/zellePayment");
 const ChequePayment = require("../../models/mobile/chequePayment");
 const { createPaymentWithTransactionId } = require("../../helpers/mobile/paymentHelper");
@@ -145,6 +146,8 @@ exports.createManualPayment = async (req, res) => {
             proofS3Key: s3Key,
             status: "PENDING"
         });
+
+        await Application.updateOne({ _id: applicationId }, { $set: { isCompleted: true } });
 
         await notifyUserPaymentSubmitted(payment);
 

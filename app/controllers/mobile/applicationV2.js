@@ -74,6 +74,7 @@ const createApplication = async (req, res) => {
             visaType,
             status: "PAYMENT_VERIFICATION",
             statusChangedAt: new Date(),
+            isCompleted: false,
         });
 
         const applicantDocs = applicants.map((applicant) => ({

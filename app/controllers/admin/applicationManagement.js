@@ -58,7 +58,7 @@ exports.getApplications = async (req, res) => {
     try {
         const { status, search } = req.query;
         const { page, limit, skip } = parsePaginationParams(req.query);
-        const query = {};
+        const query = { isCompleted: true };
 
         if (status) {
             query.status = status;
@@ -106,7 +106,7 @@ exports.getApplications = async (req, res) => {
 exports.getApplicationById = async (req, res) => {
     try {
         const { id } = req.params;
-        const application = await Application.findById(id).populate(
+        const application = await Application.findOne({ _id: id, isCompleted: true }).populate(
             "userId",
             "fullName email mobile"
         );
@@ -196,6 +196,14 @@ exports.updatePaymentStatus = async (req, res) => {
             });
         }
 
+        const application = await Application.findOne({ _id: id, isCompleted: true });
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Application not found",
+            });
+        }
+
         const payment = await Payment.findOne({
             _id: paymentId,
             applicationId: id,
@@ -213,6 +221,10 @@ exports.updatePaymentStatus = async (req, res) => {
         payment.adminRemark = adminRemark || null;
         payment.isReupload = status === "REJECTED";
         await payment.save();
+
+        if (status === "SUCCESS") {
+            await Application.updateOne({ _id: id }, { $set: { isCompleted: true } });
+        }
 
         const isManualPayment = ["MANUAL_CHEQUE", "ZELLE"].includes(payment.paymentMode);
         const shouldNotifyOutcome =
@@ -268,7 +280,7 @@ exports.updateApplicationStatus = async (req, res) => {
             });
         }
 
-        const application = await Application.findById(id);
+        const application = await Application.findOne({ _id: id, isCompleted: true });
         if (!application) {
             return res.status(404).json({
                 success: false,
@@ -347,6 +359,13 @@ exports.updateApplicationStatus = async (req, res) => {
 exports.getApplicationTimeline = async (req, res) => {
     try {
         const { id } = req.params;
+        const application = await Application.findOne({ _id: id, isCompleted: true });
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Application not found",
+            });
+        }
         const timeline = await ApplicationStatusHistory.find({ applicationId: id })
             .populate("changedByAdminId", "fullName email")
             .populate("changedByUserId", "fullName email mobile")
@@ -396,7 +415,7 @@ exports.uploadAdminDocument = async (req, res) => {
         }
 
         const [application, applicant] = await Promise.all([
-            Application.findById(id),
+            Application.findOne({ _id: id, isCompleted: true }),
             ApplicantDetails.findOne({ _id: applicantId, applicationId: id }),
         ]);
 
@@ -462,6 +481,13 @@ exports.uploadAdminDocument = async (req, res) => {
 exports.downloadDocument = async (req, res) => {
     try {
         const { id, documentId } = req.params;
+        const application = await Application.findOne({ _id: id, isCompleted: true });
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Application not found",
+            });
+        }
         const document = await ApplicationDocument.findOne({
             _id: documentId,
             applicationId: id,
@@ -510,6 +536,14 @@ exports.requestDocumentReupload = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: "Reason is required (min 5 chars)",
+            });
+        }
+
+        const application = await Application.findOne({ _id: id, isCompleted: true });
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Application not found",
             });
         }
 
@@ -604,7 +638,7 @@ exports.requestAdditionalDocument = async (req, res) => {
         }
 
         const [application, document] = await Promise.all([
-            Application.findById(id),
+            Application.findOne({ _id: id, isCompleted: true }),
             ApplicationDocument.findOne({
                 _id: documentId,
                 applicationId: id,
@@ -721,6 +755,14 @@ exports.updateDocumentStatus = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: "Rejection reason is required (min 5 chars)",
+            });
+        }
+
+        const application = await Application.findOne({ _id: id, isCompleted: true });
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Application not found",
             });
         }
 
@@ -855,6 +897,13 @@ exports.updateDocumentStatus = async (req, res) => {
 exports.getApplicationAuditLogs = async (req, res) => {
     try {
         const { id } = req.params;
+        const application = await Application.findOne({ _id: id, isCompleted: true });
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Application not found",
+            });
+        }
         const logs = await ApplicationAuditLog.find({ applicationId: id }).sort({
             createdAt: -1,
         });

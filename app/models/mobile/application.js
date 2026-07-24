@@ -49,6 +49,11 @@ const applicationSchema = new mongoose.Schema(
             type: Date,
             default: Date.now,
         },
+        isCompleted: {
+            type: Boolean,
+            default: false,
+            index: true,
+        },
     },
     { timestamps: true }
 );

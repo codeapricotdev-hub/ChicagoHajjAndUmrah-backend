@@ -23,20 +23,26 @@ const buildAdminPaymentQuery = async ({ transactionId, applicationId }) => {
 
     if (applicationId) {
         const normalizedReference = applicationId.toString().trim();
+        const applicationQuery = { isCompleted: true };
 
-        if (isApplicationIdentifier(normalizedReference)) {
-            const application = await Application.findOne({
-                applicationIdentifier: normalizeApplicationIdentifier(normalizedReference),
-            }).select("_id");
-
-            if (!application) {
-                return null;
-            }
-
-            query.applicationId = application._id;
+        if (mongoose.Types.ObjectId.isValid(normalizedReference)) {
+            applicationQuery._id = normalizedReference;
+        } else if (isApplicationIdentifier(normalizedReference)) {
+            applicationQuery.applicationIdentifier =
+                normalizeApplicationIdentifier(normalizedReference);
         } else {
-            query.applicationId = normalizedReference;
+            const error = new Error("Invalid application identifier");
+            error.statusCode = 400;
+            throw error;
         }
+
+        const application = await Application.findOne(applicationQuery).select("_id");
+
+        if (!application) {
+            return null;
+        }
+
+        query.applicationId = application._id;
     }
 
     return query;
@@ -70,6 +76,11 @@ exports.getPayments = async (req, res) => {
             });
         }
 
+        if (!query.applicationId) {
+            const completedApps = await Application.find({ isCompleted: true }).select("_id").lean();
+            query.applicationId = { $in: completedApps.map((app) => app._id) };
+        }
+
         const [payments, total] = await Promise.all([
             Payment.find(query)
                 .sort({ createdAt: -1 })
@@ -82,7 +93,7 @@ exports.getPayments = async (req, res) => {
         const applicationIds = [
             ...new Set(payments.map((payment) => payment.applicationId?.toString()).filter(Boolean)),
         ];
-        const applications = await Application.find({ _id: { $in: applicationIds } })
+        const applications = await Application.find({ _id: { $in: applicationIds }, isCompleted: true })
             .select("applicationIdentifier")
             .lean();
         const applicationMap = new Map(
@@ -143,9 +154,16 @@ exports.getPaymentByReference = async (req, res) => {
             });
         }
 
-        const application = await Application.findById(payment.applicationId).select(
+        const application = await Application.findOne({ _id: payment.applicationId, isCompleted: true }).select(
             "applicationIdentifier"
         );
+
+        if (!application) {
+            return res.status(404).json({
+                success: false,
+                message: "Payment not found",
+            });
+        }
 
         return res.status(200).json({
             success: true,

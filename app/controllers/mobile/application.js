@@ -35,6 +35,7 @@ const createApplication = async (req, res) => {
             visaType,
             status: "PAYMENT_VERIFICATION",
             statusChangedAt: new Date(),
+            isCompleted: false,
         });
 
         // 2️⃣ Create Applicant Details

@@ -103,8 +103,8 @@ exports.getAppUserById = async (req, res) => {
         }
 
         const [applicationCount, latestApplications, payments] = await Promise.all([
-            Application.countDocuments({ userId: id }),
-            Application.find({ userId: id })
+            Application.countDocuments({ userId: id, isCompleted: true }),
+            Application.find({ userId: id, isCompleted: true })
                 .select("applicationIdentifier visaType status statusChangedAt createdAt")
                 .sort({ createdAt: -1 })
                 .limit(5)

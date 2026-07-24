@@ -1,5 +1,6 @@
 const Stripe = require("stripe");
 const Payment = require("../../models/mobile/payment");
+const Application = require("../../models/mobile/application");
 const {
     notifyPaymentStatusChange,
     notifyUserPaymentSubmitted,
@@ -84,6 +85,10 @@ const applyPaymentStatusUpdate = async (payment, nextStatus, extraFields = {}) =
     }
 
     await payment.save();
+
+    if (nextStatus === "SUCCESS") {
+        await Application.updateOne({ _id: payment.applicationId }, { $set: { isCompleted: true } });
+    }
 
     const pushResult = await notifyPaymentStatusChange(payment, previousStatus);
 
