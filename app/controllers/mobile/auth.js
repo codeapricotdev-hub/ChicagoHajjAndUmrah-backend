@@ -135,7 +135,7 @@ exports.sendOtp = async (req, res) => {
         if (purpose === "register" && !fullName)
             return res.status(400).json({ message: "Full name required" });
 
-        const allowedPurposes = ["register", "login", "forgot-password", "change-password"];
+        const allowedPurposes = ["register", "login", "forgot-password"];
         if (!allowedPurposes.includes(purpose))
             return res.status(400).json({ message: "Invalid purpose" });
 
@@ -697,52 +697,6 @@ exports.verifyOtp = async (req, res) => {
         }
 
 
-        // =========================================
-        // CHANGE PASSWORD
-        // =========================================
-
-        if (user && purpose === "change-password") {
-
-            const {
-                password,
-                newPassword,
-                confirmPassword
-            } = req.body;
-
-            const isMatch =
-                await bcrypt.compare(
-                    password,
-                    user.password
-                );
-
-            if (!isMatch) {
-                return res.status(400).json({
-                    message: "Current password incorrect"
-                });
-            }
-
-            if (!newPassword || !confirmPassword) {
-                return res.status(400).json({
-                    message: "New password and confirm password required"
-                });
-            }
-
-            if (newPassword !== confirmPassword) {
-                return res.status(400).json({
-                    message: "Passwords do not match"
-                });
-            }
-
-            if (newPassword.length < 6) {
-                return res.status(400).json({
-                    message: "Password must be at least 6 characters"
-                });
-            }
-
-            user.password =
-                await bcrypt.hash(newPassword, 10);
-        }
-
 
         // =========================================
         // TOKENS
@@ -921,10 +875,78 @@ exports.logout = async (req, res) => {
         });
     }
 };
+exports.changePassword = async (req, res) => {
+    try {
+        const { password, newPassword, confirmPassword } = req.body;
 
-exports.changePassword = (req, res) => {
-    req.body.purpose = "change-password";
-    return exports.sendOtp(req, res);
+        if (!password) {
+            return res.status(400).json({
+                success: false,
+                message: "Current password is required."
+            });
+        }
+
+        if (!newPassword || !confirmPassword) {
+            return res.status(400).json({
+                success: false,
+                message: "New password and confirm password required."
+            });
+        }
+
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({
+                success: false,
+                message: "Passwords do not match."
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: "Password must be at least 6 characters."
+            });
+        }
+
+        const user = await AppUser.findById(req.user._id).select("+password");
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found."
+            });
+        }
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({
+                success: false,
+                message: "Current password incorrect."
+            });
+        }
+
+        const isSame = await bcrypt.compare(newPassword, user.password);
+        if (isSame) {
+            return res.status(400).json({
+                success: false,
+                message: "New password cannot be the same as the current password."
+            });
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Password changed successfully."
+        });
+
+    } catch (err) {
+        console.error("========== CHANGE PASSWORD ERROR ==========");
+        console.error(err);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error."
+        });
+    }
 };
 
 exports.getRefreshToken = async (req, res) => {

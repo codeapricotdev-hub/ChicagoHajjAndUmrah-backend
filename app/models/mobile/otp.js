@@ -22,7 +22,7 @@ const otpSchema = new mongoose.Schema(
         },
         purpose: {
             type: String,
-            enum: ["register", "login", "forgot-password", "change-password", "change-mobile"],
+            enum: ["register", "login", "forgot-password", "change-mobile"],
         },
         // Set true after verify-otp in forgot-password flow; consumed by reset-password
         isVerified: {
