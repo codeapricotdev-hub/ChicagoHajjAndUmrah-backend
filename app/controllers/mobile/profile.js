@@ -259,8 +259,12 @@ exports.editProfile = async (req, res) => {
         if (hasPhoneChangeInput) {
 
 
-            incomingMobile = phoneNumber
-                ? smsHelper.normalizePhoneForTwilio(String(phoneNumber))
+            const trimmedPhone = String(phoneNumber)
+                .trim()
+                .replace(/\s+/g, "");
+
+            incomingMobile = trimmedPhone
+                ? smsHelper.normalizePhoneForTwilio(trimmedPhone)
                 : "";
 
             if (!incomingMobile) {
