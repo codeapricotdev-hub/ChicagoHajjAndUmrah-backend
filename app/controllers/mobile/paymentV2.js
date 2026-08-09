@@ -332,6 +332,47 @@ exports.getPayment = async (req, res) => {
     }
 };
 
+const formatAsOrderedList = (htmlOrText) => {
+    if (!htmlOrText || !htmlOrText.trim()) {
+        return "";
+    }
+
+    if (/<(ol|ul|li)[^>]*>/i.test(htmlOrText)) {
+        return htmlOrText.trim();
+    }
+
+    let items = [];
+
+    if (htmlOrText.includes("<p>")) {
+        const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+        let match;
+        while ((match = pRegex.exec(htmlOrText)) !== null) {
+            const content = match[1].trim();
+            if (content) {
+                items.push(content);
+            }
+        }
+    }
+
+    if (items.length === 0) {
+        let temp = htmlOrText.replace(/<br\s*\/?>/gi, "\n");
+        const lines = temp.split(/\r?\n/);
+        for (let line of lines) {
+            const content = line.trim();
+            if (content) {
+                items.push(content);
+            }
+        }
+    }
+
+    if (items.length === 0) {
+        return "";
+    }
+
+    const listItems = items.map(item => `    <li>${item}</li>`);
+    return `<ol>\n${listItems.join("\n")}\n</ol>`;
+};
+
 exports.getZellePaymentInstructions = async (req, res) => {
     try {
         const { price, refid } = req.body;
@@ -352,19 +393,8 @@ exports.getZellePaymentInstructions = async (req, res) => {
             });
         }
 
-        //const referenceId = generateReferenceId();
-        const defaultTemplate = `
- \r\n Send $${price} to:
-- Email: ${zelle.email}
-- Phone: ${zelle.phone}
-
- \r\n <b>Include the reference note</b>:
- "${refid} in the memo field".
-        `.trim();
-
-        const template = zelle?.instructionTemplate?.trim()
-            ? `${zelle.instructionTemplate} ${defaultTemplate}`
-            : defaultTemplate;
+        const template = zelle?.instructionTemplate?.trim() || "";
+        const templateText = formatAsOrderedList(template);
 
         return res.status(200).json({
             success: true,
@@ -375,7 +405,7 @@ exports.getZellePaymentInstructions = async (req, res) => {
                 phone: zelle.phone,
                 price,
                 refid,
-                templateText: stripHtml(template),
+                templateText,
             },
         });
     } catch (error) {

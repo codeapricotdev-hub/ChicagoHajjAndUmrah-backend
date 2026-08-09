@@ -570,7 +570,12 @@ exports.saveFcmToken = async (req, res) => {
         await User.findByIdAndUpdate(req.user._id, {
             $addToSet: {
                 fcmTokens: fcmToken,
+                deviceTokens: fcmToken,
             },
+            $set: {
+                fcmToken: fcmToken,
+                deviceToken: fcmToken,
+            }
         });
 
         return res.status(200).json({

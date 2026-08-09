@@ -26,6 +26,52 @@ const buildMulticastPayload = ({ title, message, data, tokens }) => ({
     tokens,
 });
 
+const handleInvalidTokens = async (tokens, responses) => {
+    const invalidTokens = [];
+    responses.forEach((resp, idx) => {
+        if (!resp.success) {
+            const errorCode = resp.error?.code;
+            if (
+                errorCode === "messaging/invalid-registration-token" ||
+                errorCode === "messaging/registration-token-not-registered"
+            ) {
+                invalidTokens.push(tokens[idx]);
+            }
+        }
+    });
+
+    if (invalidTokens.length > 0) {
+        try {
+            await AppUser.updateMany(
+                {
+                    $or: [
+                        { fcmTokens: { $in: invalidTokens } },
+                        { deviceTokens: { $in: invalidTokens } },
+                    ],
+                },
+                {
+                    $pull: {
+                        fcmTokens: { $in: invalidTokens },
+                        deviceTokens: { $in: invalidTokens },
+                    },
+                }
+            );
+
+            await AppUser.updateMany(
+                { fcmToken: { $in: invalidTokens } },
+                { $set: { fcmToken: null } }
+            );
+
+            await AppUser.updateMany(
+                { deviceToken: { $in: invalidTokens } },
+                { $set: { deviceToken: null } }
+            );
+        } catch (dbError) {
+            console.error("Error cleaning up invalid FCM tokens:", dbError);
+        }
+    }
+};
+
 exports.sendPushNotificationToUser = async (
     userId,
     { title, message, data = {} }
@@ -47,6 +93,10 @@ exports.sendPushNotificationToUser = async (
 
     try {
         const response = await admin.messaging().sendEachForMulticast(payload);
+
+        if (response.failureCount > 0) {
+            await handleInvalidTokens(tokens, response.responses);
+        }
 
         return {
             success: true,
@@ -94,6 +144,10 @@ exports.sendPushNotificationToUsers = async (users = [], { title, message, data 
             );
             successCount += response.successCount;
             failureCount += response.failureCount;
+
+            if (response.failureCount > 0) {
+                await handleInvalidTokens(chunk, response.responses);
+            }
         } catch (error) {
             console.error("FCM Error:", error);
             failureCount += chunk.length;

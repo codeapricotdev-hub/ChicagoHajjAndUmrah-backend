@@ -8,7 +8,7 @@ const AdditionalDocumentRequest = require("../../models/mobile/additionalDocumen
 const ApplicationAuditLog = require("../../models/mobile/applicationAuditLog");
 const AppUser = require("../../models/appUser");
 const Payment = require("../../models/mobile/payment");
-const { uploadToS3, getSignedDownloadUrl } = require("../../helpers/mobile/s3");
+const { uploadToS3, getSignedDownloadUrl, getObjectFromS3, getMimeTypeFromKeyOrName } = require("../../helpers/mobile/s3");
 const {
     notifyApplicationStatusChange,
     notifyManualPaymentOutcome,
@@ -500,7 +500,12 @@ exports.downloadDocument = async (req, res) => {
             });
         }
 
-        const downloadUrl = await getSignedDownloadUrl(document.s3Key, 120);
+        const s3Object = await getObjectFromS3(document.s3Key);
+        
+        const resolvedMimeType = document.mimeType || s3Object.ContentType || getMimeTypeFromKeyOrName(document.s3Key) || "application/pdf";
+
+        res.setHeader("Content-Type", resolvedMimeType);
+        res.setHeader("Content-Disposition", "inline");
 
         await createAuditLog({
             applicationId: id,
@@ -510,19 +515,12 @@ exports.downloadDocument = async (req, res) => {
             metadata: { documentId: document._id, docType: document.docType },
         });
 
-        return res.status(200).json({
-            success: true,
-            data: {
-                documentId: document._id,
-                docType: document.docType,
-                downloadUrl,
-                expiresInSeconds: 120,
-            },
-        });
+        return res.send(s3Object.Body);
     } catch (error) {
+        console.error("ADMIN DOWNLOAD DOCUMENT ERROR:", error);
         return res.status(500).json({
             success: false,
-            message: error.message || "Server error",
+            message: "Unable to load document",
         });
     }
 };

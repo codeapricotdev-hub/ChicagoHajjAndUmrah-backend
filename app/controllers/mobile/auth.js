@@ -858,6 +858,23 @@ exports.logout = async (req, res) => {
             });
         }
 
+        // remove device token if provided
+        const tokenToRemove = req.body.deviceToken || req.body.fcmToken;
+        if (tokenToRemove) {
+            if (user.fcmTokens) {
+                user.fcmTokens = user.fcmTokens.filter((t) => t !== tokenToRemove);
+            }
+            if (user.deviceTokens) {
+                user.deviceTokens = user.deviceTokens.filter((t) => t !== tokenToRemove);
+            }
+            if (user.fcmToken === tokenToRemove) {
+                user.fcmToken = null;
+            }
+            if (user.deviceToken === tokenToRemove) {
+                user.deviceToken = null;
+            }
+        }
+
         // remove refresh token
         user.refreshToken = null;
         await user.save();

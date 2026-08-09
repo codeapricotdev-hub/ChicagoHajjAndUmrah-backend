@@ -17,6 +17,9 @@ const validateUploadFile = (file) => {
     if (!file) {
         return "File is required";
     }
+    if (file.size === 0) {
+        return "File is empty";
+    }
     if (!ALLOWED_DOC_MIME_TYPES.includes(file.mimetype)) {
         return "Unsupported file type";
     }
@@ -77,6 +80,14 @@ exports.uploadDocuments = async (req, res) => {
                 });
             }
 
+            const fileError = validateUploadFile(file);
+            if (fileError) {
+                return res.status(400).json({
+                    success: false,
+                    message: `File validation failed for ${file.originalname || file.fieldname}: ${fileError}`,
+                });
+            }
+
             const s3Key = `applications/${application._id}/${applicantId}/${docType}`;
             const uploadResult = await uploadToS3(file, s3Key);
 
@@ -93,6 +104,9 @@ exports.uploadDocuments = async (req, res) => {
                     status: "PENDING",
                     statusChangedAt: new Date(),
                     reuploadReason: null,
+                    mimeType: file.mimetype,
+                    size: file.size,
+                    originalName: file.originalname,
                     $inc: { version: 1 },
                 },
                 {
@@ -188,6 +202,9 @@ exports.reuploadDocument = async (req, res) => {
         document.status = "PENDING";
         document.statusChangedAt = new Date();
         document.version += 1;
+        document.mimeType = file.mimetype;
+        document.size = file.size;
+        document.originalName = file.originalname;
 
         await document.save();
         if (openRequest) {
@@ -335,7 +352,7 @@ exports.downloadDocument = async (req, res) => {
             });
         }
 
-        const downloadUrl = await getSignedDownloadUrl(document.s3Key, 120);
+        const downloadUrl = await getSignedDownloadUrl(document.s3Key, 120, document.mimeType);
 
         return res.status(200).json({
             success: true,
