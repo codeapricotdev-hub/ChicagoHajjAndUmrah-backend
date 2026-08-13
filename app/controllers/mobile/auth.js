@@ -894,7 +894,7 @@ exports.logout = async (req, res) => {
 };
 exports.changePassword = async (req, res) => {
     try {
-        const { password, newPassword, confirmPassword } = req.body;
+        const { currentPassword, newPassword, confirmPassword } = req.body;
 
         if (!password) {
             return res.status(400).json({
