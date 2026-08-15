@@ -9,6 +9,7 @@ router.post("/forgot-password", authController.forgotPassword);
 router.post("/reset-password", authController.resetPassword);
 router.post("/refresh-token", authController.refreshAccessToken);
 router.post("/logout", mobileAuth, authController.logout);
+router.post("/update-device-token", mobileAuth, authController.updateDeviceToken);
 
 router.post("/change-password", mobileAuth, authController.changePassword);
 router.post("/send-otp", authController.sendOtp);
