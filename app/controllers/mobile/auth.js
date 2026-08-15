@@ -892,11 +892,48 @@ exports.logout = async (req, res) => {
         });
     }
 };
+
+exports.updateDeviceToken = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const token = req.body.deviceToken || req.body.fcmToken;
+
+        if (!token) {
+            return res.status(400).json({
+                success: false,
+                message: "Device token is required"
+            });
+        }
+
+        await AppUser.findByIdAndUpdate(userId, {
+            $addToSet: {
+                fcmTokens: token,
+                deviceTokens: token,
+            },
+            $set: {
+                fcmToken: token,
+                deviceToken: token,
+            }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: "Device token updated successfully"
+        });
+    } catch (error) {
+        console.error("UPDATE DEVICE TOKEN ERROR:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
 exports.changePassword = async (req, res) => {
     try {
-        const { currentPassword, newPassword, confirmPassword } = req.body;
+        const { newPassword, confirmPassword } = req.body;
+        const currentPassword = req.body.currentPassword || req.body.password;
 
-        if (!password) {
+        if (!currentPassword) {
             return res.status(400).json({
                 success: false,
                 message: "Current password is required."
@@ -932,7 +969,7 @@ exports.changePassword = async (req, res) => {
             });
         }
 
-        const isMatch = await bcrypt.compare(password, user.password);
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
             return res.status(400).json({
                 success: false,
