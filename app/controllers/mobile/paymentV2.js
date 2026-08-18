@@ -419,7 +419,7 @@ exports.getZellePaymentInstructions = async (req, res) => {
 
 exports.repayManualPayment = async (req, res) => {
     try {
-        const { paymentId, referenceNumber, nameOnCheque, depositDate } = req.body;
+        const { paymentId, paymentMode, referenceNumber, nameOnCheque, depositDate } = req.body;
         const file = req.file;
 
         if (!paymentId) {
@@ -466,33 +466,47 @@ exports.repayManualPayment = async (req, res) => {
             });
         }
 
-        if (
-            payment.paymentMode === "MANUAL_CHEQUE" &&
-            (!referenceNumber || !nameOnCheque || !depositDate)
-        ) {
+        const targetPaymentMode = paymentMode || payment.paymentMode;
+
+        if (!["MANUAL_CHEQUE", "ZELLE"].includes(targetPaymentMode)) {
             return res.status(400).json({
                 success: false,
-                message: "Cheque details are required",
+                message: "Invalid payment mode",
             });
         }
 
-        if (payment.paymentMode === "ZELLE" && !referenceNumber) {
-            return res.status(400).json({
-                success: false,
-                message: "Zelle reference number is required",
-            });
+        if (targetPaymentMode === "MANUAL_CHEQUE") {
+            if (!nameOnCheque || !depositDate) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Cheque details are required",
+                });
+            }
         }
 
-        const s3Key = `payments/${payment.applicationId}/RETRY_${payment.paymentMode}_${Date.now()}`;
+        if (targetPaymentMode === "ZELLE") {
+            if (!referenceNumber) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Zelle reference number is required",
+                });
+            }
+        }
+
+        const s3Key = `payments/${payment.applicationId}/RETRY_${targetPaymentMode}_${Date.now()}`;
         const uploadResult = await uploadToS3(file, s3Key);
 
+        payment.paymentMode = targetPaymentMode;
         payment.proofUrl = uploadResult.url;
         payment.proofS3Key = s3Key;
         payment.referenceNumber = referenceNumber;
 
-        if (payment.paymentMode === "MANUAL_CHEQUE") {
+        if (targetPaymentMode === "MANUAL_CHEQUE") {
             payment.nameOnCheque = nameOnCheque;
             payment.depositDate = depositDate;
+        } else {
+            payment.nameOnCheque = undefined;
+            payment.depositDate = undefined;
         }
 
         payment.status = "PENDING";
